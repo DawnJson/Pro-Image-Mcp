@@ -82,14 +82,38 @@ MCP 客户端配置（Claude Code 为例，写进 `.mcp.json` 或用 `claude mcp
 
 **横版要写 `1792x1024`，不是 `1536x1024`**——3:2 会被上游拒绝。
 
-每次调用返回的审计信息：
+每次调用返回的审计信息，`cost` 是**实测**的真实花费：
 
 ```
-model=z-image  quality=low  size=1024x1024
-credits_charged=8  quality_used=low
+model=gpt-image-2  quality=low  size=1024x1024
+cost=$0.02333  upstream_credits=5  quality_used=low
 rendered 1024x1024
-saved: E:\images-out\20260902-085821-525-z-image.png (1024x1024, 1.2MB)
+saved: E:\images-out\20260902-093806-771-gpt-image-2.png (1024x1024, 958KB)
 ```
+
+## 成本是量出来的，不是算出来的
+
+`_meta.credits_charged` **不是你的账单**——它是上游来源（站方转售的 openart 账号）的内部 credit，和美元不成比例：
+
+| 模型 | `credits_charged` | pricing 单价 |
+|---|---|---|
+| flux-1-dev | 5 | $0.025 |
+| z-image | 8 | $0.015 |
+| gpt-image-2 (low) | 5 | $0.10 |
+
+而按 `sku_ratios` 公式算出来的价格，实测下来**稳定是真实扣费的两倍**，且分组倍率解释不了这个系数：
+
+| 模型 | 公式预测 | 实测扣费 | 比值 |
+|---|---|---|---|
+| z-image | $0.015 | $0.0075 | 0.5 |
+| nano-banana | $0.0333 | $0.01667 | 0.5 |
+| gpt-image-2 | $0.04667 | $0.02333 | 0.5 |
+
+所以本 MCP **不猜价格**：每次生图前后各读一次 `/v1/dashboard/billing/usage`（`total_usage` 单位是美分），用差值报告真实花费。`list_models` 里的价格标注为 **list price**，只用于横向比较模型贵贱。
+
+> 注意：用量是账户级的，如果同一账号在别处并发消费，差值会偏大。批量生图只在整批前后各测一次，不逐张测。
+
+另外 `/v1/dashboard/billing/subscription` 的 `hard_limit_usd` 是**配额上限**，不随消费变动，不能当余额读。`server_info` 用它减去 usage 才得出真正的剩余额度。
 
 ## 计价模型
 
