@@ -1,8 +1,12 @@
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const PROJ = "E:/PostGraduateFile/code/Pro-Image-Mcp";
-const OUT = "C:/Users/BigBoss/AppData/Local/Temp/claude/E--PostGraduateFile-code-Pro-Image-Mcp/601334e8-64b1-492c-b11c-3beb87dbebc2/scratchpad/out";
+// Resolved from this file so the harness runs from any checkout location.
+const PROJ = dirname(fileURLToPath(import.meta.url));
+const OUT = process.env.PROIMAGE_SAVE_DIR?.trim() || join(tmpdir(), "pro-image-e2e");
 
 const transport = new StdioClientTransport({
   command: process.execPath,

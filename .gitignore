@@ -4,3 +4,6 @@ out/
 .env
 *.log
 *.tgz
+
+# scratch response dumps
+*.local.json
