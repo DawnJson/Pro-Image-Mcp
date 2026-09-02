@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
@@ -15,22 +16,29 @@ import { QUALITY_VALUES, SIZE_EXAMPLES, explainSizeError, validateQuality, valid
 
 const cfg = loadConfig();
 const client = new RelayClient(cfg);
+/** npm rewrites package.json on `npm version`, so that is the only version worth reporting. */
+const VERSION = (createRequire(import.meta.url)("../package.json") as { version: string }).version;
 
 const QualityArg = z
   .enum(QUALITY_VALUES)
   .describe(
     "Render quality, REQUIRED. low | medium | high. Controls how much work the model puts into the image, and on " +
-      "models that carry a quality price rule (gpt-image-2, gpt-image-1-5) it also changes the cost, so it is never " +
-      "defaulted. Unrelated to the API key's channel group, which selects the upstream source and cannot be set per " +
+      "models that carry a quality price rule (gpt-image-2, gpt-image-1-5) it also changes the cost, so the server " +
+      "never defaults it. When the user did not state a quality, choose one instead of asking, and choose low: it " +
+      "is the cheapest tier and the caller can re-run at high once the composition is right. Use high only when " +
+      "the user asked for a final, print or high-quality image. The result reports what was used and what it " +
+      "cost. Unrelated to the API key's channel group, which selects the upstream source and cannot be set per " +
       "request. The upstream API does not validate this field; it is validated here.",
   );
 
 const SizeArg = z
   .string()
   .describe(
-    `Output pixel size, REQUIRED, "WxH" or "auto". Affects cost. Which aspect ratios are accepted is PER-MODEL: ` +
-      `z-image takes only 1:1, 3:4, 4:3, 9:16, 16:9, while gpt-image-2 also takes 3:2 and 21:9. Common choices: ` +
-      `${SIZE_EXAMPLES.join(", ")}. Ratios beyond 3:1 are refused by every model.`,
+    `Output pixel size, REQUIRED, "WxH" or "auto". Affects cost. When the user did not state a size, choose one ` +
+      `instead of asking: 1024x1024 unless the request implies an aspect ratio (banner/wallpaper -> 1792x1024, ` +
+      `phone/portrait -> 1024x1792). Which aspect ratios are accepted is PER-MODEL: z-image takes only 1:1, 3:4, ` +
+      `4:3, 9:16, 16:9, while gpt-image-2 also takes 3:2 and 21:9. Common choices: ${SIZE_EXAMPLES.join(", ")}. ` +
+      `Ratios beyond 3:1 are refused by every model.`,
   );
 
 const ModelArg = z
@@ -207,15 +215,18 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: nu
   return results;
 }
 
-const server = new McpServer({ name: "pro-image-mcp", version: "0.1.0" });
+const server = new McpServer({ name: "pro-image-mcp", version: VERSION });
 
 server.registerTool(
   "image_generate",
   {
     title: "Generate image from text",
     description:
-      "Text-to-image via /v1/images/generations. quality and size are required because both affect billing. " +
-      "Images are saved to disk and only the file path is returned - image bytes are never inlined into context.",
+      "Draw or generate an image from a text prompt: illustration, poster, banner, logo, icon, wallpaper, concept " +
+      "art, diagram, cover, avatar, texture, 画图 / 插画 / 海报 / 配图 / 生图. Use this whenever the user asks for " +
+      "a picture to be created rather than edited. Text-to-image via /v1/images/generations. quality and size are " +
+      "required because both affect billing. Images are saved to disk and only the file path is returned - image " +
+      "bytes are never inlined into context.",
     inputSchema: {
       prompt: z.string().min(1).describe("What to draw."),
       quality: QualityArg,
@@ -266,8 +277,11 @@ server.registerTool(
   {
     title: "Edit an image with a prompt",
     description:
-      "Image-to-image via /v1/images/edits with one reference image. quality and size are required (both affect billing). " +
-      "Masks are accepted by the endpoint but ignored by the provider, so this tool does not expose one.",
+      "Change an existing image with a text instruction: recolour, restyle, retouch, replace or remove elements, " +
+      "extend, upscale-by-redraw, 改图 / 修图 / 图生图. Use this when the user points at an image file and asks for " +
+      "it to be modified. Image-to-image via /v1/images/edits with one reference image. quality and size are " +
+      "required (both affect billing). Masks are accepted by the endpoint but ignored by the provider, so this " +
+      "tool does not expose one.",
     inputSchema: {
       image_path: z.string().describe("Absolute path to the source image (png/jpg/webp/gif)."),
       prompt: z.string().min(1).describe("How to change the image."),
@@ -316,8 +330,10 @@ server.registerTool(
   {
     title: "Blend 2-10 reference images",
     description:
-      "Combines multiple reference images into one via /v1/images/edits using repeated image[] fields. " +
-      "quality and size are required (both affect billing). Confirm the model supports image input via list_models.",
+      "Merge several images into one: style transfer from a reference, character or product kept across a new " +
+      "scene, mood-board fusion, 多图融合 / 多图参考. Use this when two or more image files must all inform the " +
+      "result. Combines 2-10 reference images via /v1/images/edits using repeated image[] fields. quality and " +
+      "size are required (both affect billing). Confirm the model supports image input via list_models.",
     inputSchema: {
       image_paths: z.array(z.string()).min(2).max(10).describe("2-10 absolute paths to reference images."),
       prompt: z.string().min(1).describe("How to combine the references."),
@@ -378,8 +394,10 @@ server.registerTool(
   {
     title: "Generate many images from many prompts",
     description:
-      "Runs image_generate over a list of prompts with bounded concurrency. Every prompt is billed separately - " +
-      "the total is reported at the end. Failures do not abort the batch; they are listed per prompt.",
+      "Generate many images at once from a list of prompts: sprite or icon sets, variations of one idea, a series " +
+      "of illustrations, 批量生图. Prefer this over repeated image_generate calls. Runs image_generate over the " +
+      "list with bounded concurrency. Every prompt is billed separately - the total is reported at the end. " +
+      "Failures do not abort the batch; they are listed per prompt.",
     inputSchema: {
       prompts: z.array(z.string().min(1)).min(1).max(20).describe("Up to 20 prompts. Each costs one image."),
       quality: QualityArg,
@@ -551,7 +569,7 @@ server.registerTool(
     const [billing, usedUsd] = await Promise.all([client.billing(), client.usageUsd()]);
     const quota = billing?.hard_limit_usd;
     const lines = [
-      "pro-image-mcp 0.1.0",
+      `pro-image-mcp ${VERSION}`,
       "",
       "Configuration",
       `  base_url:      ${cfg.baseUrl}`,
