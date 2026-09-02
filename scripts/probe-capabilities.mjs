@@ -134,7 +134,7 @@ for (const id of targets) {
   }
 }
 
-console.log("\n--- paste into VERIFIED_IMAGE_TO_IMAGE in src/capabilities.ts ---\n");
+console.log("\n--- paste into MEASURED_IMAGE_TO_IMAGE in src/capabilities.ts ---\n");
 console.log("const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {");
 for (const r of results.sort((a, b) => a.id.localeCompare(b.id))) {
   console.log(`  ${JSON.stringify(r.id)}: ${r.ok},`);

@@ -19,18 +19,39 @@ export interface ModelCapability {
  * accepted and then discarded. `_meta.references_uploaded` only reports that
  * bytes arrived and is 1 in both cases, so it must never be used for this.
  *
- * Extend with `node scripts/probe-capabilities.mjs`, which bills one edit per
- * model and reads the same suffix.
+ * IMPORTANT: these results are a property of the CHANNEL GROUP this key belongs
+ * to, not of the models. They were measured on a 图像-低 key, which the relay
+ * describes as "聚合/逆向渠道, 质量参差, 功能受限". A 图像-高 key routes to
+ * official endpoints with full parameter passthrough and would plausibly give
+ * different answers, so re-run the probe after switching keys.
+ *
+ * Regenerate with `node scripts/probe-capabilities.mjs --confirm`, which bills
+ * one edit per model and reads the same suffix.
  */
 const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
+  // Only four of the twenty models this key can reach actually apply a
+  // reference. Everything else accepted the upload, ran text2image, and billed.
+  "gpt-image-2": true,
   "nano-banana": true,
-  // Uploaded 2 references and still ran text2image.
+  "qwen-image-2": true,
+  "wan2-7-image": true,
+
+  "byte-plus-seedream-4": false,
   "byte-plus-seedream-4-5": false,
-  // Uploaded 1 reference and still ran text2image. Note this is a fact about
-  // THIS relay, not about z-image generally: prolab simply never implemented
-  // reference input for it (its registry entry declares only negativePrompt
-  // rather than declaring referenceImage false), so prolab is not evidence
-  // either way here.
+  "byte-plus-seedream-5-lite": false,
+  "flux-1-1-pro": false,
+  "flux-1-dev": false,
+  "flux-2-klein-9b": false,
+  "flux-2-lora-gallery-realism": false,
+  "flux-2-max": false,
+  "flux-2-pro": false,
+  // Named for multi-image context and still ran text2image here.
+  "flux-kontext-max": false,
+  "flux-kontext-pro": false,
+  "gpt-image-1-5": false,
+  "juggernaut-flux-pro": false,
+  "qwen-image-max": false,
+  "qwen-image-plus": false,
   "z-image": false,
 };
 
@@ -45,9 +66,11 @@ const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
  * this" are indistinguishable. Negatives therefore surface as "unknown", not as
  * "probably no", and only a live measurement can rule a model out.
  *
- * Even a positive is not proof for THIS relay, which resells aggregated and
- * reverse-engineered channels whose behaviour differs - seedream-4-5 is
- * classified as accepting references and measurably ignores them.
+ * Measurement has since shown the prior to be badly optimistic on this relay's
+ * 图像-低 channel: prolab classifies flux (including flux-kontext, named for
+ * multi-image context) and seedream as accepting references, and all eleven of
+ * those models measurably ignore them. Treat a positive prior as "worth
+ * measuring", never as an answer.
  */
 const FAMILY_PRIORS: ReadonlyArray<{
   family: string;

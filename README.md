@@ -218,15 +218,27 @@ nano-banana  $0.05
 >
 > 同理，族先验的**否定项一律降级为 `unknown`** 而非「大概率不支持」：prolab 是省略能力声明，不是否认能力，两者无法区分。只有实测能排除一个模型。
 
-已实测的三个：
+### 全量实测结果
 
-| 模型 | 结果 |
+对这把 key 能访问的 20 个模型逐个发了真实的 edits 请求。**只有 4 个真正使用参考图**：
+
+| 真图生图（`:image2image`） | 参考图被静默丢弃（`:text2image`） |
 |---|---|
-| `nano-banana` | ✅ 真图生图 |
-| `byte-plus-seedream-4-5` | ❌ 传 2 张参考图仍走 text2image |
-| `z-image` | ❌ 同上 |
+| `gpt-image-2` | 全部 11 个 flux（含 `flux-kontext-pro` / `flux-kontext-max`） |
+| `nano-banana` | 全部 3 个 seedream |
+| `qwen-image-2` | `qwen-image-max`、`qwen-image-plus` |
+| `wan2-7-image` | `gpt-image-1-5`、`z-image` |
 
-族先验里的参考图上限（取自 prolab）：gpt-image 16 张、seedream 10 张、flux 8 张、grok/qwen 3 张。
+两个反直觉的点：
+
+- **`flux-kontext-pro` / `flux-kontext-max` 名字里就写着「多图上下文」，实测照样丢参考图。**
+- 同族内部不一致：`qwen-image-2` 支持，`qwen-image-max` 和 `qwen-image-plus` 不支持；`gpt-image-2` 支持，`gpt-image-1-5` 不支持。所以**按族推断在这个站上不可靠**。
+
+> ⚠️ **这张表是渠道分组的属性，不是模型的属性。** 测试用的是「图像-低」的 key，站方对它的描述是「聚合/逆向渠道，质量参差，功能受限」。换一把「图像-高」的 key（官方渠道、参数全透传）结果很可能不同——**换 key 后请重跑探测**。
+
+prolab 的族先验在这个渠道上被证伪得很彻底：它把 flux 和 seedream 都归为接受参考图，而这 11 个模型实测全部忽略。族先验现在只当「值得一测」用，不当答案。
+
+族先验里的参考图上限（取自 prolab，仅对确认支持的模型有意义）：gpt-image 16 张、seedream 10 张、flux 8 张、grok/qwen 3 张。
 
 用 `supports: "image_to_image"` 过滤后再调 `image_edit` / `image_multi_reference`。
 
