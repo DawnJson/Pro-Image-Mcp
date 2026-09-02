@@ -56,21 +56,22 @@ const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
 };
 
 /**
- * Family priors taken from prolab, the relay operator's own image front end
- * (`image-body-builder.ts` detectModelFamily, `registry.ts` IMAGE_MODEL_REGISTRY).
+ * Family priors read off the relay operator's own image web client, which
+ * builds a different request per model family.
  * Order matters: the first matching pattern wins, most specific first.
  *
- * A positive here is a decent prior: prolab actually builds and ships that
- * request. A negative is much weaker - prolab's registry omits the capability
- * rather than denying it, so "prolab does not do this" and "the model cannot do
- * this" are indistinguishable. Negatives therefore surface as "unknown", not as
- * "probably no", and only a live measurement can rule a model out.
+ * A positive here is a decent prior: that client actually builds and ships a
+ * reference-image request for the family. A negative is much weaker - it omits
+ * the capability rather than denying it, so "the client does not do this" and
+ * "the model cannot do this" are indistinguishable. Negatives therefore surface
+ * as "unknown", not as "probably no", and only a live measurement can rule a
+ * model out.
  *
  * Measurement has since shown the prior to be badly optimistic on this relay's
- * 图像-低 channel: prolab classifies flux (including flux-kontext, named for
- * multi-image context) and seedream as accepting references, and all eleven of
- * those models measurably ignore them. Treat a positive prior as "worth
- * measuring", never as an answer.
+ * 图像-低 channel: flux (including flux-kontext, named for multi-image context)
+ * and seedream are classified as accepting references, and all eleven of those
+ * models measurably ignore them. Treat a positive prior as "worth measuring",
+ * never as an answer.
  */
 const FAMILY_PRIORS: ReadonlyArray<{
   family: string;
@@ -115,14 +116,14 @@ export function deriveCapability(entry: PricingEntry | undefined, modelId?: stri
   if (prior?.imageToImage) {
     return {
       imageToImage: "likely",
-      reason: `prolab, the relay's own front end, sends reference images for the "${prior.family}" family`,
+      reason: `the relay's own web client sends reference images for the "${prior.family}" family`,
       maxReferences: prior.maxReferences,
     };
   }
   if (prior) {
     return {
       imageToImage: "unknown",
-      reason: `prolab does not send reference images for the "${prior.family}" family, but it never states the model cannot accept them - measure it before relying on either answer`,
+      reason: `the relay's own web client does not send reference images for the "${prior.family}" family, but it never states the model cannot accept them - measure it before relying on either answer`,
     };
   }
 
@@ -138,8 +139,8 @@ export function deriveCapability(entry: PricingEntry | undefined, modelId?: stri
 const MARK: Record<Support, string> = {
   "verified-yes": "YES (measured)",
   "verified-no": "NO (measured - reference silently ignored)",
-  likely: "probably yes (prolab family)",
-  unlikely: "probably no (prolab family)",
+  likely: "probably yes (family prior)",
+  unlikely: "probably no (family prior)",
   unknown: "unknown",
 };
 

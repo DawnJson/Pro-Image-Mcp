@@ -31,7 +31,7 @@ const RESTRICTED_RATIO_MODELS = new Set(["z-image"]);
 /** 1024x1792 sits 1.6% off exact 9:16 and is accepted, so allow ~6%. */
 const RATIO_TOLERANCE = 0.06;
 
-/** Bounds prolab enforces client-side before calling the same API. */
+/** Bounds the relay's own web client enforces before calling the same API. */
 const MAX_LONG_EDGE = 3840;
 const MIN_PIXELS = 655_360;
 const MAX_PIXELS = 8_294_400;

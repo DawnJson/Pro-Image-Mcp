@@ -228,9 +228,9 @@ server.registerTool(
         .max(4)
         .optional()
         .describe(
-          "Image count (default 1). Each image is billed separately. prolab always sends n=1 and issues " +
-            "concurrent single-image requests instead, to avoid upstream batching being double-billed; " +
-            "image_batch_generate follows that pattern and is the safer way to get several images.",
+          "Image count (default 1). Each image is billed separately. The relay's own web client always sends " +
+            "n=1 and issues concurrent single-image requests instead, citing double billing of upstream " +
+            "batches; image_batch_generate follows that pattern and is the safer way to get several images.",
         ),
       ...ExtraArgs,
       save_dir: SaveDirArg,
@@ -339,7 +339,7 @@ server.registerTool(
     const cap = deriveCapability(undefined, m);
     if (cap.maxReferences && image_paths.length > cap.maxReferences) {
       return fail(
-        `${m} accepts at most ${cap.maxReferences} reference images (per prolab's family limits), got ${image_paths.length}.`,
+        `${m} accepts at most ${cap.maxReferences} reference images for its model family, got ${image_paths.length}.`,
       );
     }
     try {
@@ -526,7 +526,7 @@ server.registerTool(
       lines.push(
         "",
         "Capability notes: the relay exposes no capability flag, so image input is (measured) from a live edits " +
-          "call, or inferred from the model family as prolab (the relay's own front end) classifies it. Vendor " +
+          "call, or inferred from how the relay's own web client classifies the model family. Vendor " +
           "descriptions are NOT used: z-image is described as a 图生图 model and measurably ignores references. " +
           "A model that accepts an upload and then runs text2image still bills you, so prefer (measured) rows; " +
           "run scripts/probe-capabilities.mjs to measure more.",

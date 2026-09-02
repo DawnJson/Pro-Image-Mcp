@@ -3,12 +3,12 @@ import { detectFamily } from "./capabilities.js";
 /**
  * Which request fields each model family actually accepts.
  *
- * Transcribed from prolab's `image-body-builder.ts` family switch - the relay
- * operator's own front end, which sends a different field set per family rather
- * than one union. Sending a field a family does not accept is not obviously
- * harmful on this relay (it returns 200 either way), but it is misleading: the
- * caller believes they turned a knob that is not connected to anything. So a
- * field outside the family's set is dropped from the wire and reported.
+ * Transcribed from the relay operator's own image web client, which sends a
+ * different field set per family rather than one union. Sending a field a family
+ * does not accept is not obviously harmful on this relay (it returns 200 either
+ * way), but it is misleading: the caller believes they turned a knob that is not
+ * connected to anything. So a field outside the family's set is dropped from the
+ * wire and reported.
  *
  * `unknown` is deliberately permissive - for an unrecognised model, passing the
  * caller's fields through is better than silently discarding them.
@@ -87,10 +87,10 @@ export function buildParams(
     else dropped.push(name);
   };
 
-  // prolab treats "auto" as "say nothing", not as a literal value.
+  // "auto" means "say nothing about size", not a literal value to transmit.
   if (base.size !== "auto") offer("size", base.size);
   offer("quality", base.quality);
-  // -1 is prolab's "random" sentinel and is never transmitted.
+  // -1 is the relay's "random" sentinel and is never transmitted.
   offer("seed", extra.seed !== undefined && extra.seed >= 0 ? extra.seed : undefined);
   offer("negative_prompt", extra.negative_prompt);
   offer("input_fidelity", extra.input_fidelity);
@@ -102,7 +102,7 @@ export function buildParams(
   if (dropped.length) {
     notes.push(
       `${dropped.join(", ")} ${dropped.length === 1 ? "was" : "were"} NOT sent: the "${family}" family does not ` +
-        `accept ${dropped.length === 1 ? "it" : "them"} (per prolab, the relay's own front end). ` +
+        `accept ${dropped.length === 1 ? "it" : "them"}. ` +
         `${dropped.includes("quality") ? "quality is required by this tool for billing safety, but has no effect on this model. " : ""}` +
         `The request was made without ${dropped.length === 1 ? "it" : "them"}.`,
     );
