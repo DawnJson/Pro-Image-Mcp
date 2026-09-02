@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node: >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 [![MCP: stdio](https://img.shields.io/badge/MCP-stdio-orange.svg)](https://modelcontextprotocol.io)
-[![npm: pending](https://img.shields.io/badge/npm-pending%20publish-lightgrey.svg)](https://github.com/DawnJson/Pro-Image-Mcp)
+[![npm](https://img.shields.io/npm/v/pro-image-mcp.svg)](https://www.npmjs.com/package/pro-image-mcp)
 
 Model Context Protocol (MCP) stdio server wrapping OpenAI-compatible image relay stations (New API / one-api family) into structured image generation and editing tools.
 
@@ -28,27 +28,25 @@ Image responses always use `response_format: "url"`. Downloaded files are saved 
 
 ## Quickstart
 
-### 1. Install from Source
-
-> Note: The npm package is currently pending publication. Install from source via `git clone`. Once published, direct execution via `npx -y pro-image-mcp` will be supported.
+### 1. Install
 
 ```bash
-git clone https://github.com/DawnJson/Pro-Image-Mcp.git
-cd Pro-Image-Mcp
-npm install
-npm run build
+npx -y pro-image-mcp             # zero-install, run straight from npm
+npm install -g pro-image-mcp     # or install once and run `pro-image-mcp`
 ```
+
+`npx` resolves the latest release on every run, so a fix reaches you immediately - and so would a breaking release. Pin it as `pro-image-mcp@0.1.0` if you need that guarantee.
 
 ### 2. Configure Your MCP Client
 
-Add `pro-image` to your client's MCP config — Claude Code: project `.mcp.json` (or `claude mcp add`); Claude Desktop: `claude_desktop_config.json`; Cursor: `~/.cursor/mcp.json`. Point `args` at the absolute path of `dist/index.js`.
+Add `pro-image` to your client's MCP config — Claude Code: project `.mcp.json` (or `claude mcp add`); Claude Desktop: `claude_desktop_config.json`; Cursor: `~/.cursor/mcp.json`.
 
 ```json
 {
   "mcpServers": {
     "pro-image": {
-      "command": "node",
-      "args": ["/path/to/Pro-Image-Mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "pro-image-mcp"],
       "env": {
         "PROIMAGE_API_KEY": "sk-your-relay-api-key",
         "PROIMAGE_BASE_URL": "https://newapi.prorisehub.com",
@@ -60,7 +58,7 @@ Add `pro-image` to your client's MCP config — Claude Code: project `.mcp.json`
 }
 ```
 
-*On Windows, path formats like `C:/path/to/Pro-Image-Mcp/dist/index.js` and `C:/images-out` may be used.*
+With a global install, use `"command": "pro-image-mcp"` and `"args": []`. To run a clone instead: `git clone`, `npm install && npm run build`, then `"command": "node"` with `"args": ["/absolute/path/Pro-Image-Mcp/dist/index.js"]`. On Windows, write paths with forward slashes (`C:/images-out`).
 
 ### 3. Usage Example
 

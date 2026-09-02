@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node: >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 [![MCP: stdio](https://img.shields.io/badge/MCP-stdio-orange.svg)](https://modelcontextprotocol.io)
-[![npm: pending](https://img.shields.io/badge/npm-pending%20publish-lightgrey.svg)](https://github.com/DawnJson/Pro-Image-Mcp)
+[![npm](https://img.shields.io/npm/v/pro-image-mcp.svg)](https://www.npmjs.com/package/pro-image-mcp)
 
 一个基于 Model Context Protocol (MCP) 的 stdio 服务器，将 OpenAI 兼容的图像中转站（New API / one-api 体系）封装为标准化的图像生成与编辑工具。
 
@@ -28,27 +28,25 @@
 
 ## 快速上手
 
-### 1. 源码安装
-
-> 说明：当前 npm 包正在准备发布中，现阶段请通过源码克隆安装。正式发布后将支持通过 `npx -y pro-image-mcp` 直接免安装运行。
+### 1. 安装
 
 ```bash
-git clone https://github.com/DawnJson/Pro-Image-Mcp.git
-cd Pro-Image-Mcp
-npm install
-npm run build
+npx -y pro-image-mcp             # 零安装，直接从 npm 运行
+npm install -g pro-image-mcp     # 或装一次，之后直接运行 `pro-image-mcp`
 ```
+
+`npx` 每次运行都会解析最新版本：修复能立刻拿到，破坏性更新同样会立刻生效。需要锁定版本请写 `pro-image-mcp@0.1.0`。
 
 ### 2. 配置 MCP 客户端
 
-在客户端的 MCP 配置中添加 `pro-image`——Claude Code：项目内 `.mcp.json`（或 `claude mcp add`）；Claude Desktop：`claude_desktop_config.json`；Cursor：`~/.cursor/mcp.json`。`args` 填入 `dist/index.js` 的绝对路径：
+在客户端的 MCP 配置中添加 `pro-image`——Claude Code：项目内 `.mcp.json`（或 `claude mcp add`）；Claude Desktop：`claude_desktop_config.json`；Cursor：`~/.cursor/mcp.json`。
 
 ```json
 {
   "mcpServers": {
     "pro-image": {
-      "command": "node",
-      "args": ["/path/to/Pro-Image-Mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "pro-image-mcp"],
       "env": {
         "PROIMAGE_API_KEY": "sk-your-relay-api-key",
         "PROIMAGE_BASE_URL": "https://newapi.prorisehub.com",
@@ -60,7 +58,7 @@ npm run build
 }
 ```
 
-*在 Windows 系统中，路径可写作 `C:/path/to/Pro-Image-Mcp/dist/index.js` 以及 `C:/images-out`。*
+全局安装后可改为 `"command": "pro-image-mcp"`、`"args": []`。若要跑源码：`git clone` 后执行 `npm install && npm run build`，再把 `"command"` 设为 `"node"`、`"args"` 设为 `["/绝对路径/Pro-Image-Mcp/dist/index.js"]`。Windows 下路径请使用正斜杠（如 `C:/images-out`）。
 
 ### 3. 调用示例
 
