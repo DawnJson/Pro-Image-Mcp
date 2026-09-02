@@ -1,6 +1,6 @@
 {
   "name": "pro-image-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "MCP server for OpenAI-compatible image relay stations (New API / one-api): required quality+size, per-family parameters, and measured per-call cost",
   "type": "module",
   "license": "MIT",
