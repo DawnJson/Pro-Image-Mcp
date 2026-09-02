@@ -6,7 +6,7 @@ import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/proto
 import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { ApiError, RelayClient, type ImageResponse } from "./client.js";
-import { deriveCapability, describeSupport } from "./capabilities.js";
+import { deriveCapability, describeSupport, referenceIgnoredWarning } from "./capabilities.js";
 import { estimatePrice, formatUsd } from "./pricing.js";
 import { loadConfig } from "./config.js";
 import { formatResult, saveImages } from "./result.js";
@@ -232,12 +232,16 @@ server.registerTool(
         }),
       );
       const { res, saved } = value;
-      return text(
-        withWarnings(
-          formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
-          pre.warnings,
-        ),
-      );
+      const ignored = referenceIgnoredWarning(res.model, 1);
+      const body = formatResult({
+        model: m,
+        requestedQuality: quality,
+        requestedSize: size,
+        meta: res._meta,
+        saved,
+        costUsd,
+      });
+      return text(withWarnings(ignored ? `${body}\n\nWARNING: ${ignored}` : body, pre.warnings));
     } catch (e) {
       return fail(explainSizeError(describeError(e), size, m) ?? describeError(e));
     }
@@ -283,11 +287,13 @@ server.registerTool(
         costUsd,
       });
       const uploaded = res._meta?.references_uploaded;
-      const note =
-        uploaded !== undefined && uploaded !== image_paths.length
-          ? `\n\nWARNING: sent ${image_paths.length} references but the API reported references_uploaded=${uploaded}.`
-          : "";
-      return text(withWarnings(body + note, pre.warnings));
+      const notes: string[] = [];
+      if (uploaded !== undefined && uploaded !== image_paths.length) {
+        notes.push(`WARNING: sent ${image_paths.length} references but the API reported references_uploaded=${uploaded}.`);
+      }
+      const ignored = referenceIgnoredWarning(res.model, image_paths.length);
+      if (ignored) notes.push(`WARNING: ${ignored}`);
+      return text(withWarnings(notes.length ? [body, "", ...notes].join("\n") : body, pre.warnings));
     } catch (e) {
       return fail(explainSizeError(describeError(e), size, m) ?? describeError(e));
     }
@@ -412,13 +418,13 @@ server.registerTool(
         .filter((m) => !needle || m.id.toLowerCase().includes(needle))
         .map((m) => {
           const p = byName.get(m.id);
-          return { m, p, cap: deriveCapability(p), est: estimatePrice(p, forSize, forQuality) };
+          return { m, p, cap: deriveCapability(p, m.id), est: estimatePrice(p, forSize, forQuality) };
         });
 
       if (supports === "image_to_image") {
-        rows = rows.filter((r) => r.cap.imageToImage === "verified" || r.cap.imageToImage === "likely");
+        rows = rows.filter((r) => r.cap.imageToImage === "verified-yes" || r.cap.imageToImage === "likely");
       } else if (supports === "text_to_image_only") {
-        rows = rows.filter((r) => r.cap.imageToImage === "unlikely");
+        rows = rows.filter((r) => r.cap.imageToImage === "verified-no" || r.cap.imageToImage === "unlikely");
       }
 
       rows.sort((a, b) => (a.est.usd ?? Infinity) - (b.est.usd ?? Infinity) || a.m.id.localeCompare(b.m.id));
@@ -436,14 +442,17 @@ server.registerTool(
       for (const { m, p, cap, est } of rows) {
         lines.push(`${m.id}  ${formatUsd(est.usd)}`);
         lines.push(`    list price: ${est.breakdown}`);
-        lines.push(`    image input: ${describeSupport(cap.imageToImage)} - ${cap.reason}`);
+        const refCap = cap.maxReferences ? ` (up to ${cap.maxReferences} refs)` : "";
+        lines.push(`    image input: ${describeSupport(cap.imageToImage)}${refCap} - ${cap.reason}`);
         if (p?.description) lines.push(`    ${p.description.slice(0, 150)}`);
       }
       lines.push(
         "",
-        "Capability notes: the relay exposes no capability flag (every image model is tagged 图像 and " +
-          "supported_endpoint_types does not correlate), so anything not marked (verified) is inferred from the " +
-          "vendor's own description and may be wrong. Run scripts/probe-capabilities.mjs to confirm by live call.",
+        "Capability notes: the relay exposes no capability flag, so image input is (measured) from a live edits " +
+          "call, or inferred from the model family as prolab (the relay's own front end) classifies it. Vendor " +
+          "descriptions are NOT used: z-image is described as a 图生图 model and measurably ignores references. " +
+          "A model that accepts an upload and then runs text2image still bills you, so prefer (measured) rows; " +
+          "run scripts/probe-capabilities.mjs to measure more.",
         `Valid sizes: ${SIZE_EXAMPLES.join(", ")}, or auto.`,
         `Valid quality: ${QUALITY_VALUES.join(", ")}.`,
       );

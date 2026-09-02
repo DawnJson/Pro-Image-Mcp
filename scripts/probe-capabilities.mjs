@@ -11,7 +11,7 @@
  *   node scripts/probe-capabilities.mjs --confirm       # actually spend
  *   node scripts/probe-capabilities.mjs --confirm --only nano-banana,z-image
  *
- * Paste the emitted block into VERIFIED_IMAGE_TO_IMAGE in src/capabilities.ts.
+ * Paste the emitted block into MEASURED_IMAGE_TO_IMAGE in src/capabilities.ts.
  */
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -121,11 +121,13 @@ for (const id of targets) {
   const startedAt = Date.now();
   try {
     const out = await api("/v1/images/edits", { method: "POST", body: form });
-    const uploaded = out._meta?.references_uploaded;
-    // A model can return 200 while silently ignoring the reference, which is not real support.
-    const ok = uploaded === undefined ? true : uploaded > 0;
-    results.push({ id, ok, note: `references_uploaded=${uploaded ?? "n/a"}`, credits: out._meta?.credits_charged });
-    console.log(`${ok ? "SUPPORTED" : "IGNORED REF"}  ${((Date.now() - startedAt) / 1000).toFixed(0)}s  credits=${out._meta?.credits_charged ?? "?"}`);
+    // The response `model` carries the pipeline that actually ran:
+    // "nano-banana:image2image" used the reference, "z-image:text2image" did not.
+    // references_uploaded only proves bytes arrived and is 1 in both cases.
+    const ran = out.model ?? "";
+    const ok = ran.includes(":image2image");
+    results.push({ id, ok, note: ran, credits: out._meta?.credits_charged });
+    console.log(`${ok ? "USES REFS" : "IGNORES REFS"}  ran=${ran}  ${((Date.now() - startedAt) / 1000).toFixed(0)}s`);
   } catch (e) {
     results.push({ id, ok: false, note: String(e.message).slice(0, 120) });
     console.log(`NO  ${String(e.message).slice(0, 90)}`);
@@ -133,7 +135,7 @@ for (const id of targets) {
 }
 
 console.log("\n--- paste into VERIFIED_IMAGE_TO_IMAGE in src/capabilities.ts ---\n");
-console.log("const VERIFIED_IMAGE_TO_IMAGE: Record<string, boolean> = {");
+console.log("const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {");
 for (const r of results.sort((a, b) => a.id.localeCompare(b.id))) {
   console.log(`  ${JSON.stringify(r.id)}: ${r.ok},`);
 }

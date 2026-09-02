@@ -167,25 +167,54 @@ nano-banana  $0.05
 
 中转站**不提供任何能力标志位**——20 个图像模型的 `tags` 全是「图像」，`supported_endpoint_types` 也不相关（nano-banana 支持图生图却只标 `openai`，flux-1-dev 标了 `image-generation` 却只能文生图）。
 
-所以 `list_models` 的图生图能力分三级可信度：
+### 最危险的失败模式：参考图被静默吞掉
 
-| 标记 | 含义 |
+有的模型对 `/v1/images/edits` **返回 200、`references_uploaded=1`、正常出图、正常扣费——但根本没看你的参考图**，纯按 prompt 文生图。用户拿到一张看着挺合理的图，完全不知道参考图没起作用。
+
+判别信号在响应的 `model` 字段后缀：
+
+| 响应 `model` | 含义 |
 |---|---|
-| `yes (verified)` | 真发过 `/v1/images/edits` 确认过 |
-| `yes (from description)` | 从厂商描述里的「图生图」「多图上下文」等关键词推断，**可能错** |
-| `no (from description)` | 描述里只提文生图 |
-| `unknown` | 描述没有有效信息 |
+| `nano-banana:image2image` | 参考图**真的被用了** |
+| `z-image:text2image` | 参考图被吞，实际只按 prompt 生成 |
 
-用 `supports: "image_to_image"` 过滤出能喂图的模型，再去调 `image_edit` / `image_multi_reference`。
+**`references_uploaded` 不能用来判断**——它只说明字节传到了，两种情况下都是 1。
 
-要把推断换成实测，跑：
+本 MCP 在 `image_edit` / `image_multi_reference` 里检查这个后缀，命中 `:text2image` 就发显式 WARNING。
+
+### 可信度分级
+
+`list_models` 的 `image input` 字段：
+
+| 标记 | 来源 |
+|---|---|
+| `YES (measured)` | 实发过 edits，响应后缀是 `:image2image` |
+| `NO (measured - reference silently ignored)` | 实发过，后缀是 `:text2image` |
+| `probably yes/no (prolab family)` | 按 prolab 的 `detectModelFamily` + `IMAGE_MODEL_REGISTRY` 分族推断 |
+| `unknown` | 无族匹配 |
+
+**厂商描述已被弃用为判据**：z-image 的官方描述写着「文生图/图生图模型」，实测却是 `:text2image`，参考图直接丢弃。prolab 的 registry 也把 z-image 标为 `referenceImage: false`——描述和现实不符。
+
+已实测的三个：
+
+| 模型 | 结果 |
+|---|---|
+| `nano-banana` | ✅ 真图生图 |
+| `byte-plus-seedream-4-5` | ❌ 传 2 张参考图仍走 text2image |
+| `z-image` | ❌ 同上 |
+
+族先验里的参考图上限（取自 prolab）：gpt-image 16 张、seedream 10 张、flux 8 张、grok/qwen 3 张。
+
+用 `supports: "image_to_image"` 过滤后再调 `image_edit` / `image_multi_reference`。
+
+要把推断换成实测：
 
 ```bash
 node scripts/probe-capabilities.mjs              # 干跑，只报价
 node scripts/probe-capabilities.mjs --confirm    # 真花钱，全量约 $0.68
 ```
 
-脚本会对每个模型发一次真实的图生图请求，并输出可直接粘贴进 `src/capabilities.ts` 的 `VERIFIED_IMAGE_TO_IMAGE` 代码块。它还会检查 `references_uploaded > 0`——有的模型会返回 200 但其实忽略了参考图，那不算真支持。
+脚本按 `:image2image` 后缀判定，输出可直接粘贴进 `src/capabilities.ts` 的 `MEASURED_IMAGE_TO_IMAGE` 代码块。
 
 ## 实测确认的上游行为
 
