@@ -127,7 +127,7 @@ saved: /path/to/output/images/20260902-093806-771-gpt-image-2.png (1024x1024, 95
 | `hunyuan-image` | `size`, `quality` |
 | `dalle` | `size`, `style` |
 | `nano-banana`、`sora-image` | `size` |
-| `z-image` | `negative_prompt` |
+| `z-image` | `size`, `negative_prompt` |
 | `grok-imagine` | `resolution` |
 | `agnes-image` | 不发送任何可选字段 |
 | 未识别模型 | 宽松放行：`size`, `quality`, `seed`, `negative_prompt`, `watermark`, `background`, `output_format`, `input_fidelity` |

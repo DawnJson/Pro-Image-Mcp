@@ -127,7 +127,7 @@ If a model does not accept `quality`, the audit block marks it as `quality=high 
 | `hunyuan-image` | `size`, `quality` |
 | `dalle` | `size`, `style` |
 | `nano-banana`, `sora-image` | `size` |
-| `z-image` | `negative_prompt` |
+| `z-image` | `size`, `negative_prompt` |
 | `grok-imagine` | `resolution` |
 | `agnes-image` | none |
 | unrecognised model | permissive: `size`, `quality`, `seed`, `negative_prompt`, `watermark`, `background`, `output_format`, `input_fidelity` |

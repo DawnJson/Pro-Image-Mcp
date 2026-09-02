@@ -1,5 +1,7 @@
 import { detectFamily } from "./capabilities.js";
 
+type FieldSet = Readonly<Record<string, true>>;
+
 /**
  * Which request fields each model family actually accepts.
  *
@@ -13,38 +15,41 @@ import { detectFamily } from "./capabilities.js";
  * `unknown` is deliberately permissive - for an unrecognised model, passing the
  * caller's fields through is better than silently discarding them.
  */
-const FAMILY_FIELDS: Record<string, ReadonlySet<string>> = {
-  dalle: new Set(["size", "style"]),
-  "gpt-image": new Set([
-    "size",
-    "quality",
-    "background",
-    "output_format",
-    "output_compression",
-    "moderation",
-    "input_fidelity",
-  ]),
-  "gpt4o-image": new Set(["size", "quality", "background"]),
-  flux: new Set(["size", "seed", "output_format"]),
-  "grok-imagine": new Set(["resolution"]),
-  imagen: new Set(["size", "seed"]),
-  "nano-banana": new Set(["size"]),
-  seedream: new Set(["size", "quality", "seed", "negative_prompt", "watermark"]),
-  qwen: new Set(["size", "seed", "negative_prompt", "watermark", "prompt_extend"]),
-  "z-image": new Set(["negative_prompt"]),
-  "sora-image": new Set(["size"]),
-  "agnes-image": new Set([]),
-  "hunyuan-image": new Set(["size", "quality"]),
-  unknown: new Set([
-    "size",
-    "quality",
-    "seed",
-    "negative_prompt",
-    "watermark",
-    "background",
-    "output_format",
-    "input_fidelity",
-  ]),
+const FAMILY_FIELDS: Record<string, FieldSet> = {
+  dalle: { size: true, style: true },
+  "gpt-image": {
+    size: true,
+    quality: true,
+    background: true,
+    output_format: true,
+    output_compression: true,
+    moderation: true,
+    input_fidelity: true,
+  },
+  "gpt4o-image": { size: true, quality: true, background: true },
+  flux: { size: true, seed: true, output_format: true },
+  "grok-imagine": { resolution: true },
+  imagen: { size: true, seed: true },
+  "nano-banana": { size: true },
+  seedream: { size: true, quality: true, seed: true, negative_prompt: true, watermark: true },
+  qwen: { size: true, seed: true, negative_prompt: true, watermark: true, prompt_extend: true },
+  // size here is measured, not transcribed: a live z-image call with
+  // size=1792x1024 rendered exactly 1792x1024, so dropping the field pinned
+  // every z-image image to the model's default resolution.
+  "z-image": { size: true, negative_prompt: true },
+  "sora-image": { size: true },
+  "agnes-image": {},
+  "hunyuan-image": { size: true, quality: true },
+  unknown: {
+    size: true,
+    quality: true,
+    seed: true,
+    negative_prompt: true,
+    watermark: true,
+    background: true,
+    output_format: true,
+    input_fidelity: true,
+  },
 };
 
 /** Optional, family-specific fields a caller may supply. */
@@ -83,7 +88,7 @@ export function buildParams(
 
   const offer = (name: string, value: string | number | boolean | undefined) => {
     if (value === undefined || value === "") return;
-    if (allowed.has(name)) fields[name] = value;
+    if (allowed[name]) fields[name] = value;
     else dropped.push(name);
   };
 
@@ -113,5 +118,5 @@ export function buildParams(
 /** Families where `quality` reaches the model at all. */
 export function qualityApplies(model: string): boolean {
   const family = detectFamily(model);
-  return (FAMILY_FIELDS[family] ?? FAMILY_FIELDS.unknown).has("quality");
+  return (FAMILY_FIELDS[family] ?? FAMILY_FIELDS.unknown).quality === true;
 }
