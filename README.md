@@ -12,7 +12,7 @@
 | `image_edit` | 单图编辑（图生图） | `POST /v1/images/edits` |
 | `image_multi_reference` | 2–10 张参考图融合 | `POST /v1/images/edits`（重复 `image[]` 字段） |
 | `image_batch_generate` | 批量生图，带并发上限 | 同上，循环调用 |
-| `list_models` | 可用模型 + 单价表，按价格升序 | `/v1/models` + `/api/pricing` |
+| `list_models` | 模型能力表 + 按 size/quality 估算的单价，按价格升序 | `/v1/models` + `/api/pricing` |
 | `server_info` | 配置、余额、已验证的 API 约束 | `/v1/dashboard/billing/subscription` |
 
 `quality` 和 `size` 在四个生图工具里都是**必填**，不设默认值——这两个直接决定计费，静默默认等于替用户做消费决定。
@@ -78,6 +78,59 @@ credits_charged=8  quality_used=low
 rendered 1024x1024
 saved: E:\images-out\20260902-085821-525-z-image.png (1024x1024, 1.2MB)
 ```
+
+## 计价模型
+
+从 `/api/pricing` 的 `sku_ratios` 字段解出来的完整公式：
+
+```
+实际价格 = model_price
+         × 长边档位倍率      (每个模型有自己的档位表，18/20 适用)
+         × quality 倍率      (只有 gpt-image-1-5 和 gpt-image-2 适用)
+         × 渠道分组倍率      (低 1.0 / 中 1.1 / 高 1.2，由 key 决定)
+```
+
+**长边档位表是 per-model 的，不能硬编码一张全局表**：
+
+| 模型 | 1K | 2K | 3K | 4K |
+|---|---|---|---|---|
+| 通用规则（16 个模型） | 0.70 | 0.85 | 0.95 | 1.00 |
+| `nano-banana` | **0.50** | **0.75** | 1.00 | 1.00 |
+| `z-image` / `flux-2-klein-9b` | 固定价，不分档 | | | |
+
+`quality` 的 SKU 倍率（`low 0.7 / medium 0.85 / high 1.0`）**只对 `gpt-image-1-5` 和 `gpt-image-2` 生效**。其余 18 个模型改 quality 不改变 `credits_charged`，只通过 key 的渠道分组倍率影响账单——这解释了为什么实测 z-image 在 low/medium/high 三档都是 8 credits。
+
+`list_models` 会按你给的 `size` 和 `quality` 实时算出每个模型的估价并给出推导过程：
+
+```
+nano-banana  $0.05
+    price:      $0.06666667 base x0.75 (2K)
+    image input: yes (verified) - confirmed by a live /v1/images/edits call
+```
+
+## 模型能力表
+
+中转站**不提供任何能力标志位**——20 个图像模型的 `tags` 全是「图像」，`supported_endpoint_types` 也不相关（nano-banana 支持图生图却只标 `openai`，flux-1-dev 标了 `image-generation` 却只能文生图）。
+
+所以 `list_models` 的图生图能力分三级可信度：
+
+| 标记 | 含义 |
+|---|---|
+| `yes (verified)` | 真发过 `/v1/images/edits` 确认过 |
+| `yes (from description)` | 从厂商描述里的「图生图」「多图上下文」等关键词推断，**可能错** |
+| `no (from description)` | 描述里只提文生图 |
+| `unknown` | 描述没有有效信息 |
+
+用 `supports: "image_to_image"` 过滤出能喂图的模型，再去调 `image_edit` / `image_multi_reference`。
+
+要把推断换成实测，跑：
+
+```bash
+node scripts/probe-capabilities.mjs              # 干跑，只报价
+node scripts/probe-capabilities.mjs --confirm    # 真花钱，全量约 $0.68
+```
+
+脚本会对每个模型发一次真实的图生图请求，并输出可直接粘贴进 `src/capabilities.ts` 的 `VERIFIED_IMAGE_TO_IMAGE` 代码块。它还会检查 `references_uploaded > 0`——有的模型会返回 200 但其实忽略了参考图，那不算真支持。
 
 ## 实测确认的上游行为
 

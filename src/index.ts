@@ -5,7 +5,9 @@ import { access } from "node:fs/promises";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { ApiError, RelayClient, type ImageResponse, type PricingEntry } from "./client.js";
+import { ApiError, RelayClient, type ImageResponse } from "./client.js";
+import { deriveCapability, describeSupport } from "./capabilities.js";
+import { estimatePrice, formatUsd } from "./pricing.js";
 import { loadConfig } from "./config.js";
 import { formatResult, saveImages } from "./result.js";
 import { QUALITY_VALUES, SIZE_EXAMPLES, validateQuality, validateSize } from "./sizes.js";
@@ -310,53 +312,74 @@ server.registerTool(
   },
 );
 
-function priceOf(p: PricingEntry | undefined): string {
-  if (!p) return "?";
-  // quota_type 1 is per-call fixed pricing, which is how image models are billed here.
-  if (p.quota_type === 1 && typeof p.model_price === "number") return `$${p.model_price}`;
-  if (typeof p.model_ratio === "number" && p.model_ratio > 0) return `ratio ${p.model_ratio}`;
-  return "?";
-}
-
 server.registerTool(
   "list_models",
   {
-    title: "List available image models with prices",
+    title: "List image models with capabilities and estimated prices",
     description:
-      "Merges /v1/models (what this key can reach) with /api/pricing (per-image price and description) so a model " +
-      "can be chosen on cost, not guesswork. Prices are the relay's base per-image price before the key's group multiplier.",
+      "Merges /v1/models (what this key can reach) with /api/pricing (price, description and SKU multipliers). " +
+      "Reports, per model, whether it accepts image input (image_edit / image_multi_reference) and what one image " +
+      "costs at a given size and quality, so a model can be chosen on capability and cost rather than guesswork.",
     inputSchema: {
       filter: z.string().optional().describe("Case-insensitive substring to match against model id."),
+      size: z
+        .string()
+        .optional()
+        .describe(`Price the models for this size (default 1024x1024). Long edge picks the tier: <=1024, <=2048, <=3072, above.`),
+      quality: z
+        .enum(QUALITY_VALUES)
+        .optional()
+        .describe("Price the models for this quality (default low). Only affects models carrying a quality SKU rule."),
+      supports: z
+        .enum(["any", "image_to_image", "text_to_image_only"])
+        .optional()
+        .describe("Filter by capability. Use image_to_image before calling image_edit or image_multi_reference."),
     },
   },
-  async ({ filter }) => {
+  async ({ filter, size, quality, supports }) => {
+    const forSize = size?.trim() || "1024x1024";
+    const forQuality = quality ?? "low";
     try {
       const [models, pricing] = await Promise.all([client.listModels(), client.pricing().catch(() => [])]);
       const byName = new Map(pricing.map((p) => [p.model_name, p]));
       const needle = filter?.trim().toLowerCase();
-      const rows = models
+
+      let rows = models
         .filter((m) => !needle || m.id.toLowerCase().includes(needle))
-        .map((m) => ({ m, p: byName.get(m.id) }))
-        .sort((a, b) => {
-          const pa = a.p?.quota_type === 1 ? (a.p.model_price ?? Infinity) : Infinity;
-          const pb = b.p?.quota_type === 1 ? (b.p.model_price ?? Infinity) : Infinity;
-          return pa - pb || a.m.id.localeCompare(b.m.id);
+        .map((m) => {
+          const p = byName.get(m.id);
+          return { m, p, cap: deriveCapability(p), est: estimatePrice(p, forSize, forQuality) };
         });
 
-      if (!rows.length) return text(`No models matched ${JSON.stringify(filter ?? "")}.`);
+      if (supports === "image_to_image") {
+        rows = rows.filter((r) => r.cap.imageToImage === "verified" || r.cap.imageToImage === "likely");
+      } else if (supports === "text_to_image_only") {
+        rows = rows.filter((r) => r.cap.imageToImage === "unlikely");
+      }
+
+      rows.sort((a, b) => (a.est.usd ?? Infinity) - (b.est.usd ?? Infinity) || a.m.id.localeCompare(b.m.id));
+      if (!rows.length) return text(`No models matched filter=${JSON.stringify(filter ?? "")} supports=${supports ?? "any"}.`);
 
       const lines = [
         `${rows.length} model(s) reachable with this key, cheapest first.`,
-        "Price is per image, before the key's channel-group multiplier (low 1.0 / medium 1.1 / high 1.2).",
+        `Prices are per image at size=${forSize} quality=${forQuality}, BEFORE the key's channel-group multiplier ` +
+          `(low 1.0 / medium 1.1 / high 1.2).`,
         "",
       ];
-      for (const { m, p } of rows) {
-        lines.push(`${m.id}  ${priceOf(p)}`);
-        const ep = (m.supported_endpoint_types ?? []).join(", ");
-        if (ep) lines.push(`    endpoints: ${ep}`);
-        if (p?.description) lines.push(`    ${p.description.slice(0, 160)}`);
+      for (const { m, p, cap, est } of rows) {
+        lines.push(`${m.id}  ${formatUsd(est.usd)}`);
+        lines.push(`    price:      ${est.breakdown}`);
+        lines.push(`    image input: ${describeSupport(cap.imageToImage)} - ${cap.reason}`);
+        if (p?.description) lines.push(`    ${p.description.slice(0, 150)}`);
       }
-      lines.push("", `Valid sizes: ${SIZE_EXAMPLES.join(", ")}, or auto.`, `Valid quality: ${QUALITY_VALUES.join(", ")}.`);
+      lines.push(
+        "",
+        "Capability notes: the relay exposes no capability flag (every image model is tagged 图像 and " +
+          "supported_endpoint_types does not correlate), so anything not marked (verified) is inferred from the " +
+          "vendor's own description and may be wrong. Run scripts/probe-capabilities.mjs to confirm by live call.",
+        `Valid sizes: ${SIZE_EXAMPLES.join(", ")}, or auto.`,
+        `Valid quality: ${QUALITY_VALUES.join(", ")}.`,
+      );
       return text(lines.join("\n"));
     } catch (e) {
       return fail(describeError(e));

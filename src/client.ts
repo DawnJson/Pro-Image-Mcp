@@ -166,6 +166,21 @@ export class RelayClient {
   }
 }
 
+/** A per-model multiplier the relay applies on top of `model_price`. */
+export interface SkuRule {
+  /** Which request field drives the multiplier. */
+  source?: "size" | "quality" | string;
+  /** "tier" uses `tiers`; "enum" uses `enum`. */
+  kind?: string;
+  enabled?: boolean;
+  /** How a size is reduced to a number; only "long_edge" is used in practice. */
+  derive?: string;
+  /** The rule applies only to models named here. */
+  models?: string[];
+  tiers?: Array<{ up_to: number; ratio: number; label?: string }>;
+  enum?: Record<string, number>;
+}
+
 export interface PricingEntry {
   model_name: string;
   description?: string;
@@ -174,6 +189,7 @@ export interface PricingEntry {
   model_ratio?: number;
   supported_endpoint_types?: string[];
   tags?: string;
+  sku_ratios?: SkuRule[];
 }
 
 export interface BillingInfo {
