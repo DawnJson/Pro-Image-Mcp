@@ -35,7 +35,7 @@ npx -y pro-image-mcp             # 零安装，直接从 npm 运行
 npm install -g pro-image-mcp     # 或装一次，之后直接运行 `pro-image-mcp`
 ```
 
-`npx` 每次运行都会解析最新版本：修复能立刻拿到，破坏性更新同样会立刻生效。需要锁定版本请写 `pro-image-mcp@0.1.2`。
+`npx` 每次运行都会解析最新版本：修复能立刻拿到，破坏性更新同样会立刻生效。需要锁定版本请写 `pro-image-mcp@<版本号>`，当前版本号用 `npm view pro-image-mcp version` 查。
 
 ### 2. 配置 MCP 客户端
 

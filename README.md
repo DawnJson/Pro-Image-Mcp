@@ -35,7 +35,7 @@ npx -y pro-image-mcp             # zero-install, run straight from npm
 npm install -g pro-image-mcp     # or install once and run `pro-image-mcp`
 ```
 
-`npx` resolves the latest release on every run, so a fix reaches you immediately - and so would a breaking release. Pin it as `pro-image-mcp@0.1.2` if you need that guarantee.
+`npx` resolves the latest release on every run, so a fix reaches you immediately - and so would a breaking release. Pin an exact version if you need that guarantee: `npm view pro-image-mcp version` prints the current one, then write it as `pro-image-mcp@<version>`.
 
 ### 2. Configure Your MCP Client
 
