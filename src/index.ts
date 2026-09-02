@@ -507,8 +507,8 @@ server.registerTool(
       const lines = [
         `${rows.length} model(s) reachable with this key, cheapest first.`,
         `LIST prices per image at size=${forSize} quality=${forQuality}, computed from the relay's published ` +
-          `price and SKU rules. Treat them as relative guidance, not as the bill: measured charges have come in ` +
-          `at about half the computed figure, by a factor the published group ratios do not explain. The ` +
+          `price and SKU rules. Treat them as relative guidance, not as the bill: measured charges have not ` +
+          `matched the computed figure, by a factor the published group ratios do not explain. The ` +
           `generation tools report the real cost, measured from account usage. Channel groups pick the upstream ` +
           `source, are fixed by the key, and are a separate axis from the per-request quality parameter.`,
         "",

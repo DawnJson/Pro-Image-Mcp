@@ -14,11 +14,11 @@ import type { PricingEntry, SkuRule } from "./client.js";
  * carries neither rule and is billed flat.
  *
  * IMPORTANT: this computation is a LIST price, not the bill. Measured against
- * the account usage endpoint, real charges came in at almost exactly half the
- * computed figure across three models with different rule shapes (z-image flat,
- * nano-banana size-tiered, gpt-image-2 size+quality tiered), and the published
- * group ratios do not account for the difference. Use it to compare models;
- * use RelayClient.usageUsd() deltas for what something actually cost.
+ * the account usage endpoint, the real charge did not match the computed figure
+ * on any of the three rule shapes that were checked (flat, size-tiered, and
+ * size+quality tiered), and the published group ratios do not explain the gap.
+ * Use it to compare models against each other; use RelayClient.usageUsd()
+ * deltas for what something actually cost.
  *
  * The channel group is a SEPARATE axis and is NOT the `quality` parameter.
  * Groups select which upstream source fulfils the request; they are fixed by
