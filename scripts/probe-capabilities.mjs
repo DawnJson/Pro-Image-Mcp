@@ -17,12 +17,28 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const KEY = process.env.PROIMAGE_API_KEY?.trim();
-const BASE = (process.env.PROIMAGE_BASE_URL?.trim() || "https://newapi.prorisehub.com").replace(/\/+$/, "");
-if (!KEY) {
-  console.error("PROIMAGE_API_KEY is not set.");
+// The compiled server modules are the single source of the default base URL,
+// the https-only check and the download allowlist, so this script does not get
+// to disagree with the server about any of them.
+let loadConfig;
+let assertDownloadable;
+try {
+  ({ loadConfig } = await import("../dist/config.js"));
+  ({ assertDownloadable } = await import("../dist/paths.js"));
+} catch {
+  console.error("Compiled output is missing. Run `npm run build` first.");
   process.exit(1);
 }
+
+let cfg;
+try {
+  cfg = loadConfig();
+} catch (e) {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(1);
+}
+const KEY = cfg.apiKey;
+const BASE = cfg.baseUrl;
 
 const args = process.argv.slice(2);
 const confirmed = args.includes("--confirm");
@@ -96,12 +112,13 @@ const seed = await api("/v1/images/generations", {
     response_format: "url",
   }),
 });
-// The relay returns URLs with a leading space.
-const seedUrl = seed.data?.[0]?.url?.trim();
-if (!seedUrl) {
+const rawSeedUrl = seed.data?.[0]?.url;
+if (!rawSeedUrl) {
   console.error("Could not create a reference image; aborting.");
   process.exit(1);
 }
+// Trims the leading space the relay emits and refuses untrusted hosts.
+const seedUrl = assertDownloadable(rawSeedUrl, cfg);
 const refBytes = Buffer.from(await (await fetch(seedUrl)).arrayBuffer());
 const refPath = join(tmpdir(), "pro-image-probe-ref.png");
 await writeFile(refPath, refBytes);

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { access } from "node:fs/promises";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -11,6 +10,7 @@ import { buildParams, qualityApplies, type ExtraParams } from "./params.js";
 import { estimatePrice, formatUsd } from "./pricing.js";
 import { loadConfig } from "./config.js";
 import { formatResult, saveImages } from "./result.js";
+import { checkImageInputs, resolveSaveDir } from "./paths.js";
 import { QUALITY_VALUES, SIZE_EXAMPLES, explainSizeError, validateQuality, validateSize } from "./sizes.js";
 
 const cfg = loadConfig();
@@ -72,7 +72,13 @@ const InputFidelityArg = z
       "Use high to keep faces and fine detail intact.",
   );
 
-const SaveDirArg = z.string().optional().describe(`Directory for output files. Defaults to ${cfg.saveDir}.`);
+const SaveDirArg = z
+  .string()
+  .optional()
+  .describe(
+    `Directory for output files. Defaults to ${cfg.saveDir}. Must stay inside ${cfg.saveRoot}; a relative ` +
+      `path is resolved against that root.`,
+  );
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -91,15 +97,27 @@ function describeError(e: unknown): string {
 }
 
 /**
- * Catches bad quality/size before the caller waits 30s for an upstream refusal.
- * Returns a hard error only for combinations that certainly fail; anything
- * merely suspicious comes back as a warning so a valid request is never blocked.
+ * Catches bad quality/size and an out-of-sandbox save_dir before the caller
+ * waits 30s for an upstream refusal - and before anything is billed. Returns a
+ * hard error only for combinations that certainly fail; anything merely
+ * suspicious comes back as a warning so a valid request is never blocked.
  */
-function preflight(quality: string, size: string, model: string): { error?: string; warnings: string[] } {
+function preflight(
+  quality: string,
+  size: string,
+  model: string,
+  saveDir?: string,
+): { error?: string; warnings: string[]; dir?: string } {
   const q = validateQuality(quality);
   if (q) return { error: q, warnings: [] };
+  let dir: string;
+  try {
+    dir = resolveSaveDir(cfg, saveDir);
+  } catch (e) {
+    return { error: describeError(e), warnings: [] };
+  }
   const s = validateSize(size, model);
-  return { error: s.ok ? undefined : s.error, warnings: s.warnings };
+  return { error: s.ok ? undefined : s.error, warnings: s.warnings, dir };
 }
 
 /** multipart form values must be strings; JSON bodies accept the raw types. */
@@ -111,17 +129,6 @@ function stringify(fields: Record<string, string | number | boolean>): Record<st
 function withWarnings(body: string, warnings: string[]): string {
   if (!warnings.length) return body;
   return `${body}\n\n${warnings.map((w) => `NOTE: ${w}`).join("\n")}`;
-}
-
-async function assertReadable(paths: string[]): Promise<string | null> {
-  for (const p of paths) {
-    try {
-      await access(p);
-    } catch {
-      return `Image not found or unreadable: ${p}`;
-    }
-  }
-  return null;
 }
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -231,14 +238,14 @@ server.registerTool(
   },
   async ({ prompt, quality, size, model, n, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
-    const pre = preflight(quality, size, m);
+    const pre = preflight(quality, size, m, save_dir);
     if (pre.error) return fail(pre.error);
     const built = buildParams(m, { size, quality }, rest as ExtraParams);
     try {
       const { value, costUsd } = await withProgress(extra, `generating with ${m}`, () =>
         withCost(async () => {
           const res = await client.generate({ model: m, prompt, ...built.fields, n: n ?? 1, response_format: "url" });
-          return { res, saved: await saveImages(client, cfg, res, m, save_dir) };
+          return { res, saved: await saveImages(client, cfg, res, m, pre.dir) };
         }),
       );
       const { res, saved } = value;
@@ -274,16 +281,16 @@ server.registerTool(
   },
   async ({ image_path, prompt, quality, size, model, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
-    const pre = preflight(quality, size, m);
+    const pre = preflight(quality, size, m, save_dir);
     if (pre.error) return fail(pre.error);
-    const missing = await assertReadable([image_path]);
-    if (missing) return fail(missing);
+    const badInput = await checkImageInputs([image_path], cfg);
+    if (badInput) return fail(badInput);
     const built = buildParams(m, { size, quality }, rest as ExtraParams);
     try {
       const { value, costUsd } = await withProgress(extra, `editing with ${m}`, () =>
         withCost(async () => {
           const res = await client.edit([image_path], { model: m, prompt, ...stringify(built.fields), n: "1" });
-          return { res, saved: await saveImages(client, cfg, res, `${m}-edit`, save_dir) };
+          return { res, saved: await saveImages(client, cfg, res, `${m}-edit`, pre.dir) };
         }),
       );
       const { res, saved } = value;
@@ -324,10 +331,10 @@ server.registerTool(
   },
   async ({ image_paths, prompt, quality, size, model, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
-    const pre = preflight(quality, size, m);
+    const pre = preflight(quality, size, m, save_dir);
     if (pre.error) return fail(pre.error);
-    const missing = await assertReadable(image_paths);
-    if (missing) return fail(missing);
+    const badInput = await checkImageInputs(image_paths, cfg);
+    if (badInput) return fail(badInput);
     const built = buildParams(m, { size, quality }, rest as ExtraParams);
     const cap = deriveCapability(undefined, m);
     if (cap.maxReferences && image_paths.length > cap.maxReferences) {
@@ -339,7 +346,7 @@ server.registerTool(
       const { value, costUsd } = await withProgress(extra, `blending ${image_paths.length} refs with ${m}`, () =>
         withCost(async () => {
           const res = await client.edit(image_paths, { model: m, prompt, ...stringify(built.fields), n: "1" });
-          return { res, saved: await saveImages(client, cfg, res, `${m}-multiref`, save_dir) };
+          return { res, saved: await saveImages(client, cfg, res, `${m}-multiref`, pre.dir) };
         }),
       );
       const { res, saved } = value;
@@ -391,7 +398,7 @@ server.registerTool(
   },
   async ({ prompts, quality, size, model, concurrency, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
-    const pre = preflight(quality, size, m);
+    const pre = preflight(quality, size, m, save_dir);
     if (pre.error) return fail(pre.error);
     const built = buildParams(m, { size, quality }, rest as ExtraParams);
     const limit = Math.min(concurrency ?? cfg.maxConcurrency, 8);
@@ -411,7 +418,7 @@ server.registerTool(
           n: 1,
           response_format: "url",
         });
-        const saved = await saveImages(client, cfg, res, `${m}-batch${i + 1}`, save_dir);
+        const saved = await saveImages(client, cfg, res, `${m}-batch${i + 1}`, pre.dir);
         return { i, ok: true as const, prompt, credits: res._meta?.credits_charged ?? 0, saved, meta: res._meta };
       } catch (e) {
         return { i, ok: false as const, prompt, error: describeError(e) };
@@ -551,8 +558,11 @@ server.registerTool(
       `  api_key:       ${cfg.apiKey.slice(0, 6)}...${cfg.apiKey.slice(-4)}`,
       `  default_model: ${cfg.defaultModel}`,
       `  save_dir:      ${cfg.saveDir}`,
+      `  save_root:     ${cfg.saveRoot}`,
+      `  input_root:    ${cfg.inputRoot ?? "(unrestricted)"}`,
       `  timeout_ms:    ${cfg.timeoutMs}`,
       `  concurrency:   ${cfg.maxConcurrency}`,
+      `  trusted_hosts: ${cfg.trustedDownloadHosts.join(", ")}`,
       "",
       "Account",
       // hard_limit_usd is a quota ceiling and does not move as calls are billed;

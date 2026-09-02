@@ -14,7 +14,6 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     PROIMAGE_API_KEY: process.env.PROIMAGE_API_KEY,
-    PROIMAGE_BASE_URL: "https://newapi.prorisehub.com",
     PROIMAGE_SAVE_DIR: OUT,
     PROIMAGE_DEFAULT_MODEL: "z-image",
   },
@@ -62,6 +61,21 @@ if (want("valid")) {
   await call("image_generate", { prompt: "x", quality: "low", size: "1536x1024" }, "REJECT 3:2 size");
   await call("image_generate", { prompt: "x", quality: "ultra", size: "1024x1024" }, "REJECT bad quality");
   await call("image_edit", { image_path: "Z:/nope.png", prompt: "x", quality: "low", size: "1024x1024" }, "REJECT missing file");
+  await call(
+    "image_edit",
+    { image_path: join(PROJ, "package.json"), prompt: "x", quality: "low", size: "1024x1024" },
+    "REJECT non-image input",
+  );
+  await call(
+    "image_generate",
+    { prompt: "x", quality: "low", size: "1024x1024", save_dir: join(PROJ, "escaped-out") },
+    "REJECT save_dir outside the sandbox root",
+  );
+  await call(
+    "image_generate",
+    { prompt: "x", quality: "low", size: "1024x1024", save_dir: "../../escaped-out" },
+    "REJECT save_dir traversal",
+  );
 }
 
 // --- Real billed calls ---

@@ -76,6 +76,9 @@ npm run build
 | `PROIMAGE_API_KEY` | *(无)* | 是 | 图像中转站的 API Key。 |
 | `PROIMAGE_BASE_URL` | `https://newapi.prorisehub.com` | 否 | 中转站基础接口地址。必须为 `https`；仅当主机是 `localhost`/`127.0.0.1` 时才接受 `http`——API Key 会作为 Bearer token 出现在每个请求里，明文传输即泄露。末尾的斜杠会被自动去除。 |
 | `PROIMAGE_SAVE_DIR` | `~/Pictures/pro-image-mcp` | 否 | 下载图片的本地保存目录。 |
+| `PROIMAGE_SAVE_DIR_ROOT` | 实际生效的 `PROIMAGE_SAVE_DIR` | 否 | 输出沙箱根目录。所有传入的 `save_dir` 参数都必须解析在此根目录以内（相对路径按此根目录解析；解析符号链接）。逃逸请求将在发起任何计费调用前被本地直接拦截。如 AI 智能体确需保存到默认目录之外，可将此项配置为更宽的外层目录。 |
+| `PROIMAGE_INPUT_ROOT` | *(未设置)* | 否 | 可选的输入沙箱根目录。默认不设置（接受任意可读路径）。当显式配置后，所有 `image_path` / `image_paths` 参数必须解析在此根目录以内（解析符号链接）。在魔数校验基础上提供纵深防御。 |
+| `PROIMAGE_TRUSTED_DOWNLOAD_HOSTS` | 根据 `PROIMAGE_BASE_URL` 推导 | 否 | 允许下载图片的受信任域名列表，逗号分隔。默认包含基础地址的主机名及其父域名下的所有子域名（如 `newapi.prorisehub.com` 以及 `*.prorisehub.com`）。中转站返回的不在此列表中的图片下载地址将被直接拒绝。下载必须使用 `https`（仅当主机为 `localhost`/`127.0.0.1` 时允许 `http`）。 |
 | `PROIMAGE_DEFAULT_MODEL` | `gpt-image-2` | 否 | 未显式指定 `model` 时采用的默认模型。 |
 | `PROIMAGE_TIMEOUT_MS` | `300000` | 否 | 单个 HTTP 请求超时毫秒数（默认 5 分钟）。 |
 | `PROIMAGE_CONCURRENCY` | `3` | 否 | `image_batch_generate` 工具的默认并发数上限。 |
@@ -92,6 +95,10 @@ npm run build
 | `server_info` | 查询当前服务配置、账户额度、用量支出及已测接口约束。 | *(无参数)* |
 
 *\* `quality` (`low` \| `medium` \| `high`) 与 `size` (`WxH` 或 `auto`) 在四个生图工具中皆为严格必填项。*
+
+在发起任何计费上游调用前，服务端会在本地执行输入校验：
+- `save_dir` 严格限制在输出沙箱根目录（`PROIMAGE_SAVE_DIR_ROOT`）内。
+- `image_edit` 与 `image_multi_reference` 传入的参考图必须具备真实图片魔数（PNG、JPEG、WebP、GIF）且单文件不超过 25 MB。非图片文件在本地直接拒绝，防止 LLM 受控路径外发读取敏感本地文件。
 
 ### 输出审计格式示例
 
@@ -128,7 +135,7 @@ saved: /path/to/output/images/20260902-093806-771-gpt-image-2.png (1024x1024, 95
 | 未识别模型 | 宽松放行：`size`, `quality`, `seed`, `negative_prompt`, `watermark`, `background`, `output_format`, `input_fidelity` |
 
 - **参考图被静默吞掉的检测**：部分模型在处理 `/v1/images/edits` 时会返回 HTTP 200 并接收图片上传，但实际仅依据提示词做文生图。本服务通过响应中的流水线模型后缀进行识别：`:image2image` 代表参考图真正生效，`:text2image` 代表参考图被忽略。在当前测试渠道 key 下，仅有 4 个模型（`gpt-image-2`、`nano-banana`、`qwen-image-2`、`wan2-7-image`）确认使用参考图，其余 16 个可访问模型均静默忽略。
-- **能力探测脚本**：可随时针对当前密钥与渠道重新探测实际能力支持：
+- **能力探测脚本**：可随时针对当前密钥与渠道重新探测实际能力支持。该脚本会导入编译后的服务模块，运行前需先执行 `npm run build`：
   ```bash
   node scripts/probe-capabilities.mjs              # 干跑试算：仅预估全量探测成本
   node scripts/probe-capabilities.mjs --confirm    # 实发探测：执行 edits 调用并输出确认映射表
@@ -147,6 +154,9 @@ saved: /path/to/output/images/20260902-093806-771-gpt-image-2.png (1024x1024, 95
 - **客户端 60 秒超时**：高分辨率出图或多图融合通常需要 15–60 秒。服务端每 5 秒会发送一次 `notifications/progress` 进度通知。若客户端不支持根据进度重置超时，请调高客户端请求超时（如在 Claude Code 中配置 `MCP_TIMEOUT=300000`）。
 - **尺寸被拒错误**：当上游模型拒绝特定宽高比时，客户端会格式化报错信息并明确提示该模型支持的比例清单（如 `expected one of "1:1"|"3:4"|"4:3"|"9:16"|"16:9"|"auto"`）。
 - **参考图被忽略告警**：调用 `image_edit` 或 `image_multi_reference` 时若收到 `:text2image` 告警，说明该模型在此渠道不支持真图生图，请使用 `list_models` 的 `supports="image_to_image"` 选项切换至受支持的模型。
+- **保存目录超出根目录**：请求的 `save_dir` 超出了 `PROIMAGE_SAVE_DIR_ROOT` 允许的沙箱范围。请将 `save_dir` 设置在允许的沙箱内，或在客户端环境中放宽 `PROIMAGE_SAVE_DIR_ROOT`。
+- **参考图片不合法**：`image_path` / `image_paths` 指定的文件不是合法的图片格式（PNG、JPEG、WebP、GIF）或单文件大小超过 25 MB。非图片文件会在本地上传前被直接拦截。
+- **不受信任的下载域名**：中转站返回的图片下载 URL 对应的主机名未包含在 `PROIMAGE_TRUSTED_DOWNLOAD_HOSTS` 白名单中。可将中转站的存储域名添加至 `PROIMAGE_TRUSTED_DOWNLOAD_HOSTS`，或检查中转站返回的链接是否正常。
 
 ## 开发指南
 
@@ -166,7 +176,7 @@ npm start       # 启动编译产物 node dist/index.js
 
 ```bash
 # 免费阶段（本地校验与只读查询）
-node e2e.mjs valid          # 拦截测试：非法比例、非法质量、文件不存在
+node e2e.mjs valid          # 拦截测试：非法比例、非法质量、文件不存在、非图片输入、save_dir 越界与路径穿越
 node e2e.mjs info,models    # 查询 server_info 与 list_models
 
 # 计费阶段（产生真实扣费）
@@ -179,9 +189,11 @@ node e2e.mjs batch          # 受控并发批量生成
 
 ## 安全注意事项
 
-- 切勿将 API Key 或敏感中转站地址提交至公共代码仓库。
-- 保证 `.env` 始终处于 `.gitignore` 规则中，仅通过 MCP 客户端的执行环境配置传入密钥。
-- 生成的图片均存储于本地磁盘，请确保 `PROIMAGE_SAVE_DIR` 目录的文件权限符合安全要求。
+- **API Key 管理**：切勿将 API Key 或敏感中转站地址提交至公共代码仓库。保证 `.env` 始终处于 `.gitignore` 规则中，仅通过 MCP 客户端的执行环境配置传入密钥。
+- **传输强制 HTTPS**：`PROIMAGE_BASE_URL` 与图片下载地址必须采用 `https`（仅 `localhost`/`127.0.0.1` 允许明文 `http`），因 API Key 作为 Bearer token 附带于每个请求中。
+- **输出沙箱隔离**：下载的图片受限于 `PROIMAGE_SAVE_DIR_ROOT`。用户或智能体传入的 `save_dir` 参数无法逃逸出该目录（解析符号链接）。
+- **输入校验与沙箱**：供 `image_edit` / `image_multi_reference` 使用的参考图在上传前必须通过图片文件魔数检测（PNG、JPEG、WebP、GIF）且单文件上限为 25 MB，杜绝本地任意文件被外发。若配置了 `PROIMAGE_INPUT_ROOT`，输入路径还会被严格限制在该根目录下。
+- **下载域名白名单**：中转站返回的下载链接在抓取前须通过 `PROIMAGE_TRUSTED_DOWNLOAD_HOSTS` 校验，防范 SSRF 或非预期的外向请求。
 
 ## 免责声明
 

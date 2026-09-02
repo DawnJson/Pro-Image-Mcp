@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import type { Config } from "./config.js";
+import { assertDownloadable } from "./paths.js";
 
 /** Diagnostics the relay attaches to every image response. */
 export interface ImageMeta {
@@ -182,12 +183,16 @@ export class RelayClient {
     }
   }
 
-  /** The relay returns URLs with a leading space, so every URL must be trimmed. */
+  /**
+   * The relay returns URLs with a leading space, and it names the host this
+   * server will fetch from, so the URL is validated before any request.
+   */
   async download(url: string): Promise<Buffer> {
+    const target = assertDownloadable(url, this.cfg);
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), this.cfg.timeoutMs);
     try {
-      const res = await fetch(url.trim(), { signal: ctl.signal });
+      const res = await fetch(target, { signal: ctl.signal });
       if (!res.ok) throw new ApiError(`Downloading image failed: HTTP ${res.status}`, res.status);
       return Buffer.from(await res.arrayBuffer());
     } finally {

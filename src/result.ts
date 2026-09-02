@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config.js";
 import type { ImageMeta, ImageResponse, RelayClient } from "./client.js";
+import { resolveSaveDir, sniffImage } from "./paths.js";
 
 function stamp(): string {
   const d = new Date();
@@ -14,15 +15,6 @@ function stamp(): string {
 
 function slug(s: string): string {
   return s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "image";
-}
-
-/** Sniff the container so the file gets an extension that matches its bytes. */
-function extFor(buf: Buffer): string {
-  if (buf.length > 8 && buf.subarray(1, 4).toString("latin1") === "PNG") return ".png";
-  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return ".jpg";
-  if (buf.length > 12 && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP") return ".webp";
-  if (buf.length > 6 && buf.subarray(0, 3).toString("latin1") === "GIF") return ".gif";
-  return ".png";
 }
 
 export interface SavedImage {
@@ -46,7 +38,7 @@ export async function saveImages(
   label: string,
   saveDirOverride?: string,
 ): Promise<SavedImage[]> {
-  const dir = saveDirOverride?.trim() || cfg.saveDir;
+  const dir = resolveSaveDir(cfg, saveDirOverride);
   await mkdir(dir, { recursive: true });
 
   const out: SavedImage[] = [];
@@ -66,7 +58,10 @@ export async function saveImages(
     }
 
     const suffix = items.length > 1 ? `-${i + 1}` : "";
-    const path = join(dir, `${stamp()}-${slug(label)}${suffix}${extFor(buf)}`);
+    // The extension has to match the bytes, not whatever the URL claimed.
+    const kind = sniffImage(buf);
+    const ext = kind === "jpeg" ? ".jpg" : kind ? `.${kind}` : ".png";
+    const path = join(dir, `${stamp()}-${slug(label)}${suffix}${ext}`);
     await writeFile(path, buf);
     const dim = pngSize(buf);
     out.push({ path, bytes: buf.length, width: dim?.width, height: dim?.height, sourceUrl });
