@@ -1,0 +1,24 @@
+{
+  "name": "pro-image-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for OpenAI-compatible image relay stations (New API / one-api), with explicit quality+size billing control",
+  "type": "module",
+  "bin": { "pro-image-mcp": "dist/index.js" },
+  "main": "dist/index.js",
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}
