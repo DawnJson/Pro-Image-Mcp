@@ -74,7 +74,7 @@ The server is configured via environment variables passed into the MCP process:
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `PROIMAGE_API_KEY` | *(none)* | Yes | API key for the image relay station. |
-| `PROIMAGE_BASE_URL` | `https://us.prorisehub.com` | No | Relay base URL. Trailing slashes are automatically stripped. |
+| `PROIMAGE_BASE_URL` | `https://us.prorisehub.com` | No | Relay base URL. Must be `https`; plain `http` is rejected unless the host is `localhost`/`127.0.0.1`, because the API key is sent as a bearer token on every request. Trailing slashes are stripped. |
 | `PROIMAGE_SAVE_DIR` | `~/Pictures/pro-image-mcp` | No | Local filesystem directory where downloaded images are saved. |
 | `PROIMAGE_DEFAULT_MODEL` | `gpt-image-2` | No | Default model used when the `model` parameter is omitted. |
 | `PROIMAGE_TIMEOUT_MS` | `300000` | No | Single HTTP request timeout in milliseconds (5 minutes). |
