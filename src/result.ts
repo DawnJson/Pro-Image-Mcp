@@ -92,12 +92,16 @@ export function formatResult(opts: {
   saved: SavedImage[];
   /** Measured USD delta around the call, or null when unavailable. */
   costUsd?: number | null;
+  /** False when the model's family does not accept `quality`, so it was not transmitted. */
+  qualitySent?: boolean;
 }): string {
-  const { model, requestedQuality, requestedSize, meta = {}, saved, costUsd } = opts;
+  const { model, requestedQuality, requestedSize, meta = {}, saved, costUsd, qualitySent = true } = opts;
   const lines: string[] = [];
   const warnings: string[] = [];
 
-  lines.push(`model=${model}  quality=${requestedQuality}  size=${requestedSize}`);
+  lines.push(
+    `model=${model}  quality=${requestedQuality}${qualitySent ? "" : " (not sent)"}  size=${requestedSize}`,
+  );
 
   const billed: string[] = [];
   if (costUsd !== undefined && costUsd !== null) billed.push(`cost=$${costUsd.toFixed(5)}`);
@@ -107,7 +111,9 @@ export function formatResult(opts: {
   if (meta.attempts !== undefined && meta.attempts > 1) billed.push(`attempts=${meta.attempts}`);
   if (billed.length) lines.push(billed.join("  "));
 
-  if (meta.quality_used && meta.quality_used !== requestedQuality) {
+  // Only a real mismatch when the value was actually sent; when the family does
+  // not accept quality, the caller already gets a note explaining the omission.
+  if (qualitySent && meta.quality_used && meta.quality_used !== requestedQuality) {
     warnings.push(`Requested quality "${requestedQuality}" but the API billed "${meta.quality_used}".`);
   }
 

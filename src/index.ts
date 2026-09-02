@@ -7,6 +7,7 @@ import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sd
 import { z } from "zod";
 import { ApiError, RelayClient, type ImageResponse } from "./client.js";
 import { deriveCapability, describeSupport, referenceIgnoredWarning } from "./capabilities.js";
+import { buildParams, qualityApplies, type ExtraParams } from "./params.js";
 import { estimatePrice, formatUsd } from "./pricing.js";
 import { loadConfig } from "./config.js";
 import { formatResult, saveImages } from "./result.js";
@@ -37,6 +38,40 @@ const ModelArg = z
   .optional()
   .describe(`Model id. Defaults to ${cfg.defaultModel}. Call list_models to see ids and per-image prices.`);
 
+const ExtraArgs = {
+  seed: z
+    .number()
+    .int()
+    .min(0)
+    .max(4294967295)
+    .optional()
+    .describe("Reproducibility seed. Accepted by the flux, imagen, seedream and qwen families; dropped elsewhere."),
+  negative_prompt: z
+    .string()
+    .optional()
+    .describe("What to avoid. Accepted by the seedream, qwen and z-image families; dropped elsewhere."),
+  output_format: z
+    .enum(["png", "jpeg", "webp"])
+    .optional()
+    .describe("Output container. Accepted by the gpt-image and flux families; dropped elsewhere."),
+  background: z
+    .enum(["transparent", "opaque"])
+    .optional()
+    .describe("Backdrop. gpt-image family only - use transparent for cut-out assets. Dropped elsewhere."),
+  watermark: z
+    .boolean()
+    .optional()
+    .describe("Provider watermark. Accepted by the seedream and qwen families; dropped elsewhere."),
+} as const;
+
+const InputFidelityArg = z
+  .enum(["low", "high"])
+  .optional()
+  .describe(
+    "How closely the edit preserves the reference image. gpt-image family only; dropped elsewhere. " +
+      "Use high to keep faces and fine detail intact.",
+  );
+
 const SaveDirArg = z.string().optional().describe(`Directory for output files. Defaults to ${cfg.saveDir}.`);
 
 function text(s: string) {
@@ -65,6 +100,11 @@ function preflight(quality: string, size: string, model: string): { error?: stri
   if (q) return { error: q, warnings: [] };
   const s = validateSize(size, model);
   return { error: s.ok ? undefined : s.error, warnings: s.warnings };
+}
+
+/** multipart form values must be strings; JSON bodies accept the raw types. */
+function stringify(fields: Record<string, string | number | boolean>): Record<string, string> {
+  return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)]));
 }
 
 /** Prefixes preflight warnings onto a successful result. */
@@ -174,26 +214,38 @@ server.registerTool(
       quality: QualityArg,
       size: SizeArg,
       model: ModelArg,
-      n: z.number().int().min(1).max(4).optional().describe("Image count (default 1). Each image is billed separately."),
+      n: z
+        .number()
+        .int()
+        .min(1)
+        .max(4)
+        .optional()
+        .describe(
+          "Image count (default 1). Each image is billed separately. prolab always sends n=1 and issues " +
+            "concurrent single-image requests instead, to avoid upstream batching being double-billed; " +
+            "image_batch_generate follows that pattern and is the safer way to get several images.",
+        ),
+      ...ExtraArgs,
       save_dir: SaveDirArg,
     },
   },
-  async ({ prompt, quality, size, model, n, save_dir }, extra) => {
+  async ({ prompt, quality, size, model, n, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
     const pre = preflight(quality, size, m);
     if (pre.error) return fail(pre.error);
+    const built = buildParams(m, { size, quality }, rest as ExtraParams);
     try {
       const { value, costUsd } = await withProgress(extra, `generating with ${m}`, () =>
         withCost(async () => {
-          const res = await client.generate({ model: m, prompt, size, quality, n: n ?? 1, response_format: "url" });
+          const res = await client.generate({ model: m, prompt, ...built.fields, n: n ?? 1, response_format: "url" });
           return { res, saved: await saveImages(client, cfg, res, m, save_dir) };
         }),
       );
       const { res, saved } = value;
       return text(
         withWarnings(
-          formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
-          pre.warnings,
+          formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd, qualitySent: qualityApplies(m) }),
+          [...pre.warnings, ...built.notes],
         ),
       );
     } catch (e) {
@@ -215,19 +267,22 @@ server.registerTool(
       quality: QualityArg,
       size: SizeArg,
       model: ModelArg,
+      input_fidelity: InputFidelityArg,
+      ...ExtraArgs,
       save_dir: SaveDirArg,
     },
   },
-  async ({ image_path, prompt, quality, size, model, save_dir }, extra) => {
+  async ({ image_path, prompt, quality, size, model, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
     const pre = preflight(quality, size, m);
     if (pre.error) return fail(pre.error);
     const missing = await assertReadable([image_path]);
     if (missing) return fail(missing);
+    const built = buildParams(m, { size, quality }, rest as ExtraParams);
     try {
       const { value, costUsd } = await withProgress(extra, `editing with ${m}`, () =>
         withCost(async () => {
-          const res = await client.edit([image_path], { model: m, prompt, size, quality, n: "1" });
+          const res = await client.edit([image_path], { model: m, prompt, ...stringify(built.fields), n: "1" });
           return { res, saved: await saveImages(client, cfg, res, `${m}-edit`, save_dir) };
         }),
       );
@@ -240,6 +295,7 @@ server.registerTool(
         meta: res._meta,
         saved,
         costUsd,
+        qualitySent: qualityApplies(m),
       });
       return text(withWarnings(ignored ? `${body}\n\nWARNING: ${ignored}` : body, pre.warnings));
     } catch (e) {
@@ -261,19 +317,28 @@ server.registerTool(
       quality: QualityArg,
       size: SizeArg,
       model: ModelArg,
+      input_fidelity: InputFidelityArg,
+      ...ExtraArgs,
       save_dir: SaveDirArg,
     },
   },
-  async ({ image_paths, prompt, quality, size, model, save_dir }, extra) => {
+  async ({ image_paths, prompt, quality, size, model, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
     const pre = preflight(quality, size, m);
     if (pre.error) return fail(pre.error);
     const missing = await assertReadable(image_paths);
     if (missing) return fail(missing);
+    const built = buildParams(m, { size, quality }, rest as ExtraParams);
+    const cap = deriveCapability(undefined, m);
+    if (cap.maxReferences && image_paths.length > cap.maxReferences) {
+      return fail(
+        `${m} accepts at most ${cap.maxReferences} reference images (per prolab's family limits), got ${image_paths.length}.`,
+      );
+    }
     try {
       const { value, costUsd } = await withProgress(extra, `blending ${image_paths.length} refs with ${m}`, () =>
         withCost(async () => {
-          const res = await client.edit(image_paths, { model: m, prompt, size, quality, n: "1" });
+          const res = await client.edit(image_paths, { model: m, prompt, ...stringify(built.fields), n: "1" });
           return { res, saved: await saveImages(client, cfg, res, `${m}-multiref`, save_dir) };
         }),
       );
@@ -285,6 +350,7 @@ server.registerTool(
         meta: res._meta,
         saved,
         costUsd,
+        qualitySent: qualityApplies(m),
       });
       const uploaded = res._meta?.references_uploaded;
       const notes: string[] = [];
@@ -319,13 +385,15 @@ server.registerTool(
         .max(8)
         .optional()
         .describe(`Parallel requests (default ${cfg.maxConcurrency}).`),
+      ...ExtraArgs,
       save_dir: SaveDirArg,
     },
   },
-  async ({ prompts, quality, size, model, concurrency, save_dir }, extra) => {
+  async ({ prompts, quality, size, model, concurrency, save_dir, ...rest }, extra) => {
     const m = model?.trim() || cfg.defaultModel;
     const pre = preflight(quality, size, m);
     if (pre.error) return fail(pre.error);
+    const built = buildParams(m, { size, quality }, rest as ExtraParams);
     const limit = Math.min(concurrency ?? cfg.maxConcurrency, 8);
 
     let done = 0;
@@ -339,8 +407,7 @@ server.registerTool(
         const res: ImageResponse = await client.generate({
           model: m,
           prompt,
-          size,
-          quality,
+          ...built.fields,
           n: 1,
           response_format: "url",
         });
@@ -444,6 +511,9 @@ server.registerTool(
         lines.push(`    list price: ${est.breakdown}`);
         const refCap = cap.maxReferences ? ` (up to ${cap.maxReferences} refs)` : "";
         lines.push(`    image input: ${describeSupport(cap.imageToImage)}${refCap} - ${cap.reason}`);
+        if (!qualityApplies(m.id)) {
+          lines.push(`    quality:    IGNORED by this model - the tool still requires it, but it is not sent`);
+        }
         if (p?.description) lines.push(`    ${p.description.slice(0, 150)}`);
       }
       lines.push(

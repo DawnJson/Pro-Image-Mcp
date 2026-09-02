@@ -26,8 +26,11 @@ const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
   "nano-banana": true,
   // Uploaded 2 references and still ran text2image.
   "byte-plus-seedream-4-5": false,
-  // Uploaded 1 reference and still ran text2image, matching prolab's registry,
-  // which marks z-image as having no reference-image support at all.
+  // Uploaded 1 reference and still ran text2image. Note this is a fact about
+  // THIS relay, not about z-image generally: prolab simply never implemented
+  // reference input for it (its registry entry declares only negativePrompt
+  // rather than declaring referenceImage false), so prolab is not evidence
+  // either way here.
   "z-image": false,
 };
 
@@ -36,9 +39,15 @@ const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
  * (`image-body-builder.ts` detectModelFamily, `registry.ts` IMAGE_MODEL_REGISTRY).
  * Order matters: the first matching pattern wins, most specific first.
  *
- * These describe what the upstream models can do, which is a strong prior but
- * not proof for THIS relay - it resells aggregated and reverse-engineered
- * channels whose behaviour can differ, as seedream-4-5 already shows.
+ * A positive here is a decent prior: prolab actually builds and ships that
+ * request. A negative is much weaker - prolab's registry omits the capability
+ * rather than denying it, so "prolab does not do this" and "the model cannot do
+ * this" are indistinguishable. Negatives therefore surface as "unknown", not as
+ * "probably no", and only a live measurement can rule a model out.
+ *
+ * Even a positive is not proof for THIS relay, which resells aggregated and
+ * reverse-engineered channels whose behaviour differs - seedream-4-5 is
+ * classified as accepting references and measurably ignores them.
  */
 const FAMILY_PRIORS: ReadonlyArray<{
   family: string;
@@ -80,11 +89,17 @@ export function deriveCapability(entry: PricingEntry | undefined, modelId?: stri
     };
   }
 
+  if (prior?.imageToImage) {
+    return {
+      imageToImage: "likely",
+      reason: `prolab, the relay's own front end, sends reference images for the "${prior.family}" family`,
+      maxReferences: prior.maxReferences,
+    };
+  }
   if (prior) {
     return {
-      imageToImage: prior.imageToImage ? "likely" : "unlikely",
-      reason: `model family "${prior.family}" ${prior.imageToImage ? "accepts" : "does not accept"} reference images in prolab, the relay's own front end`,
-      maxReferences: prior.maxReferences,
+      imageToImage: "unknown",
+      reason: `prolab does not send reference images for the "${prior.family}" family, but it never states the model cannot accept them - measure it before relying on either answer`,
     };
   }
 
