@@ -20,9 +20,9 @@ export interface ModelCapability {
  * bytes arrived and is 1 in both cases, so it must never be used for this.
  *
  * IMPORTANT: these results are a property of the CHANNEL GROUP this key belongs
- * to, not of the models. They were measured on a 图像-低 key, which the relay
- * describes as "聚合/逆向渠道, 质量参差, 功能受限". A 图像-高 key routes to
- * official endpoints with full parameter passthrough and would plausibly give
+ * to, not of the models. The relay routes each key to a different upstream
+ * source, and the cheaper groups pass fewer request parameters through. This
+ * table was measured on a low-cost group; a key on a higher group can give
  * different answers, so re-run the probe after switching keys.
  *
  * Regenerate with `node scripts/probe-capabilities.mjs --confirm`, which bills
@@ -56,9 +56,9 @@ const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
 };
 
 /**
- * Family priors read off the relay operator's own image web client, which
- * builds a different request per model family.
- * Order matters: the first matching pattern wins, most specific first.
+ * Family priors read off the relay operator's own image web client, which builds
+ * a different request per model family. Order matters: the first matching
+ * pattern wins, most specific first.
  *
  * A positive here is a decent prior: that client actually builds and ships a
  * reference-image request for the family. A negative is much weaker - it omits
@@ -68,10 +68,10 @@ const MEASURED_IMAGE_TO_IMAGE: Record<string, boolean> = {
  * model out.
  *
  * Measurement has since shown the prior to be badly optimistic on this relay's
- * 图像-低 channel: flux (including flux-kontext, named for multi-image context)
- * and seedream are classified as accepting references, and all eleven of those
- * models measurably ignore them. Treat a positive prior as "worth measuring",
- * never as an answer.
+ * cheapest channel group: flux (including flux-kontext, named for multi-image
+ * context) and seedream are classified as accepting references, and all eleven
+ * of those models measurably ignore them. Treat a positive prior as "worth
+ * measuring", never as an answer.
  */
 const FAMILY_PRIORS: ReadonlyArray<{
   family: string;
