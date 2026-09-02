@@ -29,7 +29,7 @@ const SizeArg = z
   .describe(
     `Output pixel size, REQUIRED, "WxH" or "auto". Affects cost. Which aspect ratios are accepted is PER-MODEL: ` +
       `z-image takes only 1:1, 3:4, 4:3, 9:16, 16:9, while gpt-image-2 also takes 3:2 and 21:9. Common choices: ` +
-      ${JSON.stringify(SIZE_EXAMPLES.join(", "))}. Ratios beyond 3:1 are refused by every model.`,
+      `${SIZE_EXAMPLES.join(", ")}. Ratios beyond 3:1 are refused by every model.`,
   );
 
 const ModelArg = z
