@@ -35,7 +35,7 @@ npx -y pro-image-mcp             # zero-install, run straight from npm
 npm install -g pro-image-mcp     # or install once and run `pro-image-mcp`
 ```
 
-`npx` resolves the latest release on every run, so a fix reaches you immediately - and so would a breaking release. Pin it as `pro-image-mcp@0.1.0` if you need that guarantee.
+`npx` resolves the latest release on every run, so a fix reaches you immediately - and so would a breaking release. Pin it as `pro-image-mcp@0.1.2` if you need that guarantee.
 
 ### 2. Configure Your MCP Client
 
@@ -58,7 +58,7 @@ Add `pro-image` to your client's MCP config — Claude Code: project `.mcp.json`
 }
 ```
 
-With a global install, use `"command": "pro-image-mcp"` and `"args": []`. To run a clone instead: `git clone`, `npm install && npm run build`, then `"command": "node"` with `"args": ["/absolute/path/Pro-Image-Mcp/dist/index.js"]`. On Windows, write paths with forward slashes (`C:/images-out`).
+With a global install, use `"command": "pro-image-mcp"` and `"args": []` — on macOS and Linux. On **Windows** the bin is installed as `pro-image-mcp.cmd`, and a client that spawns the process directly instead of through a shell (Codex does) fails with `ENOENT` on both a bare `pro-image-mcp` and a bare `npx`. Point such a client at the interpreter and an absolute path instead: `"command": "node"`, `"args": ["C:/path/to/node_modules/pro-image-mcp/dist/index.js"]` — `npm root -g` prints the prefix — or wrap the shim as `"command": "cmd", "args": ["/c", "pro-image-mcp"]`. To run a clone: `git clone`, `npm install && npm run build`, then `"command": "node"` with `"args": ["/absolute/path/Pro-Image-Mcp/dist/index.js"]`. Write Windows paths with forward slashes (`C:/images-out`).
 
 ### 3. Usage Example
 

@@ -35,7 +35,7 @@ npx -y pro-image-mcp             # 零安装，直接从 npm 运行
 npm install -g pro-image-mcp     # 或装一次，之后直接运行 `pro-image-mcp`
 ```
 
-`npx` 每次运行都会解析最新版本：修复能立刻拿到，破坏性更新同样会立刻生效。需要锁定版本请写 `pro-image-mcp@0.1.0`。
+`npx` 每次运行都会解析最新版本：修复能立刻拿到，破坏性更新同样会立刻生效。需要锁定版本请写 `pro-image-mcp@0.1.2`。
 
 ### 2. 配置 MCP 客户端
 
@@ -58,7 +58,7 @@ npm install -g pro-image-mcp     # 或装一次，之后直接运行 `pro-image-
 }
 ```
 
-全局安装后可改为 `"command": "pro-image-mcp"`、`"args": []`。若要跑源码：`git clone` 后执行 `npm install && npm run build`，再把 `"command"` 设为 `"node"`、`"args"` 设为 `["/绝对路径/Pro-Image-Mcp/dist/index.js"]`。Windows 下路径请使用正斜杠（如 `C:/images-out`）。
+全局安装后可改为 `"command": "pro-image-mcp"`、`"args": []`——仅限 macOS 与 Linux。**Windows 下**这个 bin 装出来是 `pro-image-mcp.cmd`，不经 shell 直接 spawn 进程的客户端（Codex 就是）对裸 `pro-image-mcp` 和裸 `npx` 都会报 `ENOENT`。这类客户端请改为指向解释器加绝对路径：`"command": "node"`、`"args": ["C:/path/to/node_modules/pro-image-mcp/dist/index.js"]`（`npm root -g` 可打印全局前缀），或把 shim 包一层：`"command": "cmd"`、`"args": ["/c", "pro-image-mcp"]`。若要跑源码：`git clone` 后执行 `npm install && npm run build`，再把 `"command"` 设为 `"node"`、`"args"` 设为 `["/绝对路径/Pro-Image-Mcp/dist/index.js"]`。Windows 下路径请使用正斜杠（如 `C:/images-out`）。
 
 ### 3. 调用示例
 
