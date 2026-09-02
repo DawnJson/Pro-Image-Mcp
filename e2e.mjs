@@ -14,7 +14,7 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     PROIMAGE_API_KEY: process.env.PROIMAGE_API_KEY,
-    PROIMAGE_BASE_URL: "https://us.prorisehub.com",
+    PROIMAGE_BASE_URL: "https://newapi.prorisehub.com",
     PROIMAGE_SAVE_DIR: OUT,
     PROIMAGE_DEFAULT_MODEL: "z-image",
   },

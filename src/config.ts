@@ -46,7 +46,7 @@ export function loadConfig(): Config {
     );
   }
   // Trailing slashes break path joining against the /v1 prefix.
-  const baseUrl = (process.env.PROIMAGE_BASE_URL?.trim() || "https://us.prorisehub.com").replace(/\/+$/, "");
+  const baseUrl = (process.env.PROIMAGE_BASE_URL?.trim() || "https://newapi.prorisehub.com").replace(/\/+$/, "");
   assertTransportSecurity(baseUrl);
   return {
     apiKey,

@@ -24,7 +24,7 @@
 ## 运行环境
 
 - Node.js >= 18.0.0
-- 支持 OpenAI 兼容图像接口的中转站 API Key（如 New API / one-api 部署；默认接口地址为 `https://us.prorisehub.com`）
+- 支持 OpenAI 兼容图像接口的中转站 API Key（如 New API / one-api 部署；默认接口地址为 `https://newapi.prorisehub.com`）
 
 ## 快速上手
 
@@ -51,7 +51,7 @@ npm run build
       "args": ["/path/to/Pro-Image-Mcp/dist/index.js"],
       "env": {
         "PROIMAGE_API_KEY": "sk-your-relay-api-key",
-        "PROIMAGE_BASE_URL": "https://us.prorisehub.com",
+        "PROIMAGE_BASE_URL": "https://newapi.prorisehub.com",
         "PROIMAGE_SAVE_DIR": "/path/to/output/images",
         "PROIMAGE_DEFAULT_MODEL": "gpt-image-2"
       }
@@ -74,7 +74,7 @@ npm run build
 | 变量名 | 默认值 | 是否必填 | 说明 |
 |---|---|---|---|
 | `PROIMAGE_API_KEY` | *(无)* | 是 | 图像中转站的 API Key。 |
-| `PROIMAGE_BASE_URL` | `https://us.prorisehub.com` | 否 | 中转站基础接口地址。必须为 `https`；仅当主机是 `localhost`/`127.0.0.1` 时才接受 `http`——API Key 会作为 Bearer token 出现在每个请求里，明文传输即泄露。末尾的斜杠会被自动去除。 |
+| `PROIMAGE_BASE_URL` | `https://newapi.prorisehub.com` | 否 | 中转站基础接口地址。必须为 `https`；仅当主机是 `localhost`/`127.0.0.1` 时才接受 `http`——API Key 会作为 Bearer token 出现在每个请求里，明文传输即泄露。末尾的斜杠会被自动去除。 |
 | `PROIMAGE_SAVE_DIR` | `~/Pictures/pro-image-mcp` | 否 | 下载图片的本地保存目录。 |
 | `PROIMAGE_DEFAULT_MODEL` | `gpt-image-2` | 否 | 未显式指定 `model` 时采用的默认模型。 |
 | `PROIMAGE_TIMEOUT_MS` | `300000` | 否 | 单个 HTTP 请求超时毫秒数（默认 5 分钟）。 |

@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const KEY = process.env.PROIMAGE_API_KEY?.trim();
-const BASE = (process.env.PROIMAGE_BASE_URL?.trim() || "https://us.prorisehub.com").replace(/\/+$/, "");
+const BASE = (process.env.PROIMAGE_BASE_URL?.trim() || "https://newapi.prorisehub.com").replace(/\/+$/, "");
 if (!KEY) {
   console.error("PROIMAGE_API_KEY is not set.");
   process.exit(1);
