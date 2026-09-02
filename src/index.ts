@@ -10,7 +10,7 @@ import { deriveCapability, describeSupport } from "./capabilities.js";
 import { estimatePrice, formatUsd } from "./pricing.js";
 import { loadConfig } from "./config.js";
 import { formatResult, saveImages } from "./result.js";
-import { QUALITY_VALUES, SIZE_EXAMPLES, validateQuality, validateSize } from "./sizes.js";
+import { QUALITY_VALUES, SIZE_EXAMPLES, explainSizeError, validateQuality, validateSize } from "./sizes.js";
 
 const cfg = loadConfig();
 const client = new RelayClient(cfg);
@@ -27,9 +27,9 @@ const QualityArg = z
 const SizeArg = z
   .string()
   .describe(
-    `Output size, REQUIRED, "WxH" or "auto". Affects cost. The provider only accepts aspect ratios ` +
-      `1:1, 3:4, 4:3, 9:16, 16:9 - e.g. ${SIZE_EXAMPLES.join(", ")}. Note 1536x1024 (3:2) is REJECTED; ` +
-      `use 1792x1024 for landscape.`,
+    `Output pixel size, REQUIRED, "WxH" or "auto". Affects cost. Which aspect ratios are accepted is PER-MODEL: ` +
+      `z-image takes only 1:1, 3:4, 4:3, 9:16, 16:9, while gpt-image-2 also takes 3:2 and 21:9. Common choices: ` +
+      ${JSON.stringify(SIZE_EXAMPLES.join(", "))}. Ratios beyond 3:1 are refused by every model.`,
   );
 
 const ModelArg = z
@@ -55,12 +55,22 @@ function describeError(e: unknown): string {
   return `Failed: ${(e as Error).message}`;
 }
 
-/** Reject bad quality/size before spending money on a request that fails after 30s. */
-function preflight(quality: string, size: string): string | null {
+/**
+ * Catches bad quality/size before the caller waits 30s for an upstream refusal.
+ * Returns a hard error only for combinations that certainly fail; anything
+ * merely suspicious comes back as a warning so a valid request is never blocked.
+ */
+function preflight(quality: string, size: string, model: string): { error?: string; warnings: string[] } {
   const q = validateQuality(quality);
-  if (q) return q;
-  const s = validateSize(size);
-  return s.ok ? null : s.error!;
+  if (q) return { error: q, warnings: [] };
+  const s = validateSize(size, model);
+  return { error: s.ok ? undefined : s.error, warnings: s.warnings };
+}
+
+/** Prefixes preflight warnings onto a successful result. */
+function withWarnings(body: string, warnings: string[]): string {
+  if (!warnings.length) return body;
+  return `${body}\n\n${warnings.map((w) => `NOTE: ${w}`).join("\n")}`;
 }
 
 async function assertReadable(paths: string[]): Promise<string | null> {
@@ -169,9 +179,9 @@ server.registerTool(
     },
   },
   async ({ prompt, quality, size, model, n, save_dir }, extra) => {
-    const bad = preflight(quality, size);
-    if (bad) return fail(bad);
     const m = model?.trim() || cfg.defaultModel;
+    const pre = preflight(quality, size, m);
+    if (pre.error) return fail(pre.error);
     try {
       const { value, costUsd } = await withProgress(extra, `generating with ${m}`, () =>
         withCost(async () => {
@@ -181,10 +191,13 @@ server.registerTool(
       );
       const { res, saved } = value;
       return text(
-        formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
+        withWarnings(
+          formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
+          pre.warnings,
+        ),
       );
     } catch (e) {
-      return fail(describeError(e));
+      return fail(explainSizeError(describeError(e), size, m) ?? describeError(e));
     }
   },
 );
@@ -206,11 +219,11 @@ server.registerTool(
     },
   },
   async ({ image_path, prompt, quality, size, model, save_dir }, extra) => {
-    const bad = preflight(quality, size);
-    if (bad) return fail(bad);
+    const m = model?.trim() || cfg.defaultModel;
+    const pre = preflight(quality, size, m);
+    if (pre.error) return fail(pre.error);
     const missing = await assertReadable([image_path]);
     if (missing) return fail(missing);
-    const m = model?.trim() || cfg.defaultModel;
     try {
       const { value, costUsd } = await withProgress(extra, `editing with ${m}`, () =>
         withCost(async () => {
@@ -220,10 +233,13 @@ server.registerTool(
       );
       const { res, saved } = value;
       return text(
-        formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
+        withWarnings(
+          formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
+          pre.warnings,
+        ),
       );
     } catch (e) {
-      return fail(describeError(e));
+      return fail(explainSizeError(describeError(e), size, m) ?? describeError(e));
     }
   },
 );
@@ -245,11 +261,11 @@ server.registerTool(
     },
   },
   async ({ image_paths, prompt, quality, size, model, save_dir }, extra) => {
-    const bad = preflight(quality, size);
-    if (bad) return fail(bad);
+    const m = model?.trim() || cfg.defaultModel;
+    const pre = preflight(quality, size, m);
+    if (pre.error) return fail(pre.error);
     const missing = await assertReadable(image_paths);
     if (missing) return fail(missing);
-    const m = model?.trim() || cfg.defaultModel;
     try {
       const { value, costUsd } = await withProgress(extra, `blending ${image_paths.length} refs with ${m}`, () =>
         withCost(async () => {
@@ -271,9 +287,9 @@ server.registerTool(
         uploaded !== undefined && uploaded !== image_paths.length
           ? `\n\nWARNING: sent ${image_paths.length} references but the API reported references_uploaded=${uploaded}.`
           : "";
-      return text(body + note);
+      return text(withWarnings(body + note, pre.warnings));
     } catch (e) {
-      return fail(describeError(e));
+      return fail(explainSizeError(describeError(e), size, m) ?? describeError(e));
     }
   },
 );
@@ -301,9 +317,9 @@ server.registerTool(
     },
   },
   async ({ prompts, quality, size, model, concurrency, save_dir }, extra) => {
-    const bad = preflight(quality, size);
-    if (bad) return fail(bad);
     const m = model?.trim() || cfg.defaultModel;
+    const pre = preflight(quality, size, m);
+    if (pre.error) return fail(pre.error);
     const limit = Math.min(concurrency ?? cfg.maxConcurrency, 8);
 
     let done = 0;
@@ -355,7 +371,8 @@ server.registerTool(
         lines.push(`${head}\n    FAILED: ${o.error}`);
       }
     }
-    return okCount === 0 ? fail(lines.join("\n")) : text(lines.join("\n"));
+    const body = withWarnings(lines.join("\n"), pre.warnings);
+    return okCount === 0 ? fail(body) : text(body);
   },
 );
 
