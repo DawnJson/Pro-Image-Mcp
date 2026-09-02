@@ -12,10 +12,10 @@
 | `image_edit` | 单图编辑（图生图） | `POST /v1/images/edits` |
 | `image_multi_reference` | 2–10 张参考图融合 | `POST /v1/images/edits`（重复 `image[]` 字段） |
 | `image_batch_generate` | 批量生图，带并发上限 | 同上，循环调用 |
-| `list_models` | 模型能力表 + 按 size/quality 估算的单价，按价格升序 | `/v1/models` + `/api/pricing` |
-| `server_info` | 配置、余额、已验证的 API 约束 | `/v1/dashboard/billing/subscription` |
+| `list_models` | 模型能力表 + 参考图支持度 + list price，按价格升序 | `/v1/models` + `/api/pricing` |
+| `server_info` | 配置、配额/已用/剩余、已验证的 API 约束 | `/v1/dashboard/billing/{subscription,usage}` |
 
-`quality` 和 `size` 在四个生图工具里都是**必填**，不设默认值——这两个直接决定计费，静默默认等于替用户做消费决定。
+`quality` 和 `size` 在四个生图工具里都是**必填**，不设默认值——这两个直接决定计费，静默默认等于替用户做消费决定。对不接受 `quality` 的模型族，它仍然必填但不会发上去（见「按模型族发参」）。
 
 ## 安装
 
@@ -159,9 +159,11 @@ saved: E:\images-out\20260902-093806-771-gpt-image-2.png (1024x1024, 958KB)
 
 ```
 nano-banana  $0.05
-    price:      $0.06666667 base x0.75 (2K)
-    image input: yes (verified) - confirmed by a live /v1/images/edits call
+    list price: $0.06666667 base x0.75 (2K)
+    image input: YES (measured) - a live edits call came back as :image2image
 ```
+
+价格标 **list price** 是因为它算不准（见上一节）；真实花费由生图工具实测报告。
 
 ## 模型能力表
 
@@ -193,7 +195,11 @@ nano-banana  $0.05
 | `probably yes/no (prolab family)` | 按 prolab 的 `detectModelFamily` + `IMAGE_MODEL_REGISTRY` 分族推断 |
 | `unknown` | 无族匹配 |
 
-**厂商描述已被弃用为判据**：z-image 的官方描述写着「文生图/图生图模型」，实测却是 `:text2image`，参考图直接丢弃。prolab 的 registry 也把 z-image 标为 `referenceImage: false`——描述和现实不符。
+**厂商描述已被弃用为判据**：z-image 的官方描述写着「文生图/图生图模型」，在这个中转站上实测却是 `:text2image`，参考图直接丢弃。
+
+> 注意 prolab **不能**用来佐证这一点。它的 registry 里 z-image 条目根本没有 `referenceImage` 这个 key（是「未声明」而非显式 `false`），`image-body-builder.ts` 的 `case 'z-image'` 注释只写「仅 negative_prompt」，并没有说上游不支持——对比 agnes-image 和 hunyuan，那两个才明确写了「实测上游忽略」。所以 prolab 只能说明**它自己没做**这条支持。判定 z-image 的唯一依据是本站的实测结果。
+>
+> 同理，族先验的**否定项一律降级为 `unknown`** 而非「大概率不支持」：prolab 是省略能力声明，不是否认能力，两者无法区分。只有实测能排除一个模型。
 
 已实测的三个：
 
