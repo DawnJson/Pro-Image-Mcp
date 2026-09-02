@@ -2,20 +2,33 @@ import type { PricingEntry, SkuRule } from "./client.js";
 
 /**
  * The relay bills image models per call (`quota_type` 1) at `model_price`,
- * then multiplies by any SKU rules that list the model, then by the channel
- * group's own ratio (low 1.0 / medium 1.1 / high 1.2), which is a property of
- * the API key and is not exposed per request.
+ * then multiplies by any SKU rules that list the model, then by the ratio of
+ * the channel group the API key belongs to.
  *
- * Two rules exist in practice:
+ * Two SKU rules exist in practice, both driven by request parameters:
  *   size    - tiered on the long edge: <=1024 x0.70, <=2048 x0.85, <=3072 x0.95, else x1.00
  *   quality - an enum (low 0.7 / medium 0.85 / high 1.0 / auto 1.0) that, on this
  *             relay, is attached only to gpt-image-1-5 and gpt-image-2
  *
  * This is why quality changed nothing on z-image's charge in testing: z-image
  * carries neither rule and is billed flat.
+ *
+ * IMPORTANT: this computation is a LIST price, not the bill. Measured against
+ * the account usage endpoint, real charges came in at almost exactly half the
+ * computed figure across three models with different rule shapes (z-image flat,
+ * nano-banana size-tiered, gpt-image-2 size+quality tiered), and the published
+ * group ratios do not account for the difference. Use it to compare models;
+ * use RelayClient.usageUsd() deltas for what something actually cost.
+ *
+ * The channel group is a SEPARATE axis and is NOT the `quality` parameter.
+ * Groups select which upstream source fulfils the request; they are fixed by
+ * the key and cannot be set per request. The `quality` parameter selects the
+ * render quality within whichever source serves the call. A group's ratio
+ * therefore cannot be computed from `quality`, and this estimate deliberately
+ * stops before it.
  */
 export interface PriceEstimate {
-  /** Price before the key's channel-group multiplier, in USD. */
+  /** Price before the key's channel-group ratio, in USD. */
   usd: number | null;
   /** Human-readable derivation, e.g. "$0.1 base x 0.70 (1K) x 0.85 (quality medium)". */
   breakdown: string;

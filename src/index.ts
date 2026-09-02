@@ -18,8 +18,10 @@ const client = new RelayClient(cfg);
 const QualityArg = z
   .enum(QUALITY_VALUES)
   .describe(
-    "Billing tier, REQUIRED. low | medium | high. This directly changes what the request costs, " +
-      "so it is never defaulted. The upstream API does not validate this field; it is validated here.",
+    "Render quality, REQUIRED. low | medium | high. Controls how much work the model puts into the image, and on " +
+      "models that carry a quality price rule (gpt-image-2, gpt-image-1-5) it also changes the cost, so it is never " +
+      "defaulted. Unrelated to the API key's channel group, which selects the upstream source and cannot be set per " +
+      "request. The upstream API does not validate this field; it is validated here.",
   );
 
 const SizeArg = z
@@ -116,6 +118,23 @@ async function withProgress<T>(
   }
 }
 
+/**
+ * Runs a billed call and measures what it actually cost, by reading cumulative
+ * account usage before and after.
+ *
+ * The reading is account-wide, so anything else spending on the same account
+ * concurrently inflates the delta; it is reported as measured rather than
+ * derived precisely because the published price formula does not reproduce the
+ * real charge. A null result means the usage endpoint was unavailable.
+ */
+async function withCost<T>(fn: () => Promise<T>): Promise<{ value: T; costUsd: number | null }> {
+  const before = await client.usageUsd();
+  const value = await fn();
+  const after = before === null ? null : await client.usageUsd();
+  const costUsd = before !== null && after !== null ? Math.max(0, after - before) : null;
+  return { value, costUsd };
+}
+
 /** Minimal semaphore - batch work is IO-bound, so a dependency isn't warranted. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
@@ -154,11 +173,16 @@ server.registerTool(
     if (bad) return fail(bad);
     const m = model?.trim() || cfg.defaultModel;
     try {
-      const { res, saved } = await withProgress(extra, `generating with ${m}`, async () => {
-        const res = await client.generate({ model: m, prompt, size, quality, n: n ?? 1, response_format: "url" });
-        return { res, saved: await saveImages(client, cfg, res, m, save_dir) };
-      });
-      return text(formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved }));
+      const { value, costUsd } = await withProgress(extra, `generating with ${m}`, () =>
+        withCost(async () => {
+          const res = await client.generate({ model: m, prompt, size, quality, n: n ?? 1, response_format: "url" });
+          return { res, saved: await saveImages(client, cfg, res, m, save_dir) };
+        }),
+      );
+      const { res, saved } = value;
+      return text(
+        formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
+      );
     } catch (e) {
       return fail(describeError(e));
     }
@@ -188,11 +212,16 @@ server.registerTool(
     if (missing) return fail(missing);
     const m = model?.trim() || cfg.defaultModel;
     try {
-      const { res, saved } = await withProgress(extra, `editing with ${m}`, async () => {
-        const res = await client.edit([image_path], { model: m, prompt, size, quality, n: "1" });
-        return { res, saved: await saveImages(client, cfg, res, `${m}-edit`, save_dir) };
-      });
-      return text(formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved }));
+      const { value, costUsd } = await withProgress(extra, `editing with ${m}`, () =>
+        withCost(async () => {
+          const res = await client.edit([image_path], { model: m, prompt, size, quality, n: "1" });
+          return { res, saved: await saveImages(client, cfg, res, `${m}-edit`, save_dir) };
+        }),
+      );
+      const { res, saved } = value;
+      return text(
+        formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved, costUsd }),
+      );
     } catch (e) {
       return fail(describeError(e));
     }
@@ -222,11 +251,21 @@ server.registerTool(
     if (missing) return fail(missing);
     const m = model?.trim() || cfg.defaultModel;
     try {
-      const { res, saved } = await withProgress(extra, `blending ${image_paths.length} refs with ${m}`, async () => {
-        const res = await client.edit(image_paths, { model: m, prompt, size, quality, n: "1" });
-        return { res, saved: await saveImages(client, cfg, res, `${m}-multiref`, save_dir) };
+      const { value, costUsd } = await withProgress(extra, `blending ${image_paths.length} refs with ${m}`, () =>
+        withCost(async () => {
+          const res = await client.edit(image_paths, { model: m, prompt, size, quality, n: "1" });
+          return { res, saved: await saveImages(client, cfg, res, `${m}-multiref`, save_dir) };
+        }),
+      );
+      const { res, saved } = value;
+      const body = formatResult({
+        model: m,
+        requestedQuality: quality,
+        requestedSize: size,
+        meta: res._meta,
+        saved,
+        costUsd,
       });
-      const body = formatResult({ model: m, requestedQuality: quality, requestedSize: size, meta: res._meta, saved });
       const uploaded = res._meta?.references_uploaded;
       const note =
         uploaded !== undefined && uploaded !== image_paths.length
@@ -268,8 +307,12 @@ server.registerTool(
     const limit = Math.min(concurrency ?? cfg.maxConcurrency, 8);
 
     let done = 0;
-    const outcomes = await withProgress(extra, () => `${m} batch: ${done}/${prompts.length} done`, () =>
-      mapLimit(prompts, limit, async (prompt, i) => {
+    const { value: outcomes, costUsd } = await withProgress(
+      extra,
+      () => `${m} batch: ${done}/${prompts.length} done`,
+      () =>
+        withCost(() =>
+          mapLimit(prompts, limit, async (prompt, i) => {
       try {
         const res: ImageResponse = await client.generate({
           model: m,
@@ -286,14 +329,18 @@ server.registerTool(
       } finally {
         done++;
       }
-      }),
+          }),
+        ),
     );
 
     const okCount = outcomes.filter((o) => o.ok).length;
     const credits = outcomes.reduce((sum, o) => sum + (o.ok ? o.credits : 0), 0);
     const lines = [
       `Batch complete: ${okCount}/${prompts.length} succeeded.`,
-      `model=${m}  quality=${quality}  size=${size}  concurrency=${limit}  total_credits_charged=${credits}`,
+      `model=${m}  quality=${quality}  size=${size}  concurrency=${limit}`,
+      costUsd === null
+        ? `upstream_credits=${credits}  (cost unavailable: the usage endpoint did not respond)`
+        : `total_cost=$${costUsd.toFixed(5)}  upstream_credits=${credits}`,
       "",
     ];
     for (const o of outcomes) {
@@ -362,13 +409,16 @@ server.registerTool(
 
       const lines = [
         `${rows.length} model(s) reachable with this key, cheapest first.`,
-        `Prices are per image at size=${forSize} quality=${forQuality}, BEFORE the key's channel-group multiplier ` +
-          `(low 1.0 / medium 1.1 / high 1.2).`,
+        `LIST prices per image at size=${forSize} quality=${forQuality}, computed from the relay's published ` +
+          `price and SKU rules. Treat them as relative guidance, not as the bill: measured charges have come in ` +
+          `at about half the computed figure, by a factor the published group ratios do not explain. The ` +
+          `generation tools report the real cost, measured from account usage. Channel groups pick the upstream ` +
+          `source, are fixed by the key, and are a separate axis from the per-request quality parameter.`,
         "",
       ];
       for (const { m, p, cap, est } of rows) {
         lines.push(`${m.id}  ${formatUsd(est.usd)}`);
-        lines.push(`    price:      ${est.breakdown}`);
+        lines.push(`    list price: ${est.breakdown}`);
         lines.push(`    image input: ${describeSupport(cap.imageToImage)} - ${cap.reason}`);
         if (p?.description) lines.push(`    ${p.description.slice(0, 150)}`);
       }
@@ -395,7 +445,8 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    const billing = await client.billing();
+    const [billing, usedUsd] = await Promise.all([client.billing(), client.usageUsd()]);
+    const quota = billing?.hard_limit_usd;
     const lines = [
       "pro-image-mcp 0.1.0",
       "",
@@ -408,13 +459,18 @@ server.registerTool(
       `  concurrency:   ${cfg.maxConcurrency}`,
       "",
       "Account",
-      billing?.hard_limit_usd !== undefined
-        ? `  balance: $${billing.hard_limit_usd.toFixed(4)}`
-        : "  balance: unavailable",
+      // hard_limit_usd is a quota ceiling and does not move as calls are billed;
+      // spend has to come from the usage endpoint instead.
+      quota !== undefined ? `  quota limit: $${quota.toFixed(4)}` : "  quota limit: unavailable",
+      usedUsd !== null ? `  used so far:  $${usedUsd.toFixed(4)}` : "  used so far:  unavailable",
+      quota !== undefined && usedUsd !== null ? `  remaining:    $${(quota - usedUsd).toFixed(4)}` : "",
       "",
-      "Required per-request billing parameters",
-      `  quality: ${QUALITY_VALUES.join(" | ")}`,
+      "Required per-request parameters",
+      `  quality: ${QUALITY_VALUES.join(" | ")}  (render quality; also prices gpt-image-2 / gpt-image-1-5)`,
       `  size:    ${SIZE_EXAMPLES.join(", ")}, or auto`,
+      "  Neither is defaulted, because both can change what a call costs.",
+      "  The key's channel group (which upstream source serves the call) is a separate axis, fixed by the key,",
+      "  and is NOT the quality parameter.",
       "",
       "Verified API constraints",
       "  - Only aspect ratios 1:1, 3:4, 4:3, 9:16, 16:9 are accepted. 1536x1024 (3:2) fails with HTTP 500;",

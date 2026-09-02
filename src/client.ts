@@ -143,6 +143,36 @@ export class RelayClient {
     return json.data ?? [];
   }
 
+  /**
+   * Cumulative spend in USD, read from the dashboard usage endpoint, whose
+   * `total_usage` is denominated in cents.
+   *
+   * This is the only trustworthy cost signal. `_meta.credits_charged` is the
+   * upstream source's own credit unit and does not track USD (flux-1-dev bills
+   * 5 credits at $0.025 while z-image bills 8 at $0.015), and the published
+   * price formula was measured to overstate the real charge by a constant
+   * factor that the group ratios do not explain. Measuring the delta around a
+   * call sidesteps all of that.
+   *
+   * Returns null rather than throwing: a missing cost reading must never fail
+   * an image that was generated successfully.
+   */
+  async usageUsd(): Promise<number | null> {
+    const day = (offsetDays: number) =>
+      new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+    try {
+      const res = await this.request(
+        `/v1/dashboard/billing/usage?start_date=${day(-1)}&end_date=${day(1)}`,
+        { method: "GET" },
+        30_000,
+      );
+      const json = (await res.json()) as { total_usage?: number };
+      return typeof json.total_usage === "number" ? json.total_usage / 100 : null;
+    } catch {
+      return null;
+    }
+  }
+
   async billing(): Promise<BillingInfo | null> {
     try {
       const res = await this.request("/v1/dashboard/billing/subscription", { method: "GET" }, 30_000);

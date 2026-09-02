@@ -38,7 +38,7 @@ MCP 客户端配置（Claude Code 为例，写进 `.mcp.json` 或用 `claude mcp
         "PROIMAGE_API_KEY": "sk-...",
         "PROIMAGE_BASE_URL": "https://us.prorisehub.com",
         "PROIMAGE_SAVE_DIR": "E:/images-out",
-        "PROIMAGE_DEFAULT_MODEL": "z-image"
+        "PROIMAGE_DEFAULT_MODEL": "gpt-image-2"
       }
     }
   }
@@ -50,13 +50,25 @@ MCP 客户端配置（Claude Code 为例，写进 `.mcp.json` 或用 `claude mcp
 | `PROIMAGE_API_KEY` | 必填 | 中转站 key |
 | `PROIMAGE_BASE_URL` | `https://us.prorisehub.com` | 站点地址，末尾斜杠会被去掉 |
 | `PROIMAGE_SAVE_DIR` | `~/Pictures/pro-image-mcp` | 出图目录 |
-| `PROIMAGE_DEFAULT_MODEL` | `z-image` | 未指定 `model` 时用它 |
+| `PROIMAGE_DEFAULT_MODEL` | `gpt-image-2` | 未指定 `model` 时用它 |
 | `PROIMAGE_TIMEOUT_MS` | `300000` | 单请求超时 |
 | `PROIMAGE_CONCURRENCY` | `3` | 批量默认并发 |
 
-## 计费参数
+## 两个必填参数
 
-**`quality`**：`low` / `medium` / `high`。对应中转站的三个渠道分组倍率（低 1.0 / 中 1.1 / 高 1.2）。
+**`quality`**：`low` / `medium` / `high`。指**生成时的图像质量**——模型在这张图上花多少力气。
+
+> `quality` 和中转站的「图像-低 / 图像-中 / 图像-高」三个渠道分组**是两个不同的维度，不是对应关系**。分组表示**用哪个来源出图**，由 key 决定、不能按请求指定；`quality` 是请求参数，决定这次生成的质量档。
+>
+> 站方对三个分组的描述（取自 `/api/pricing` 的 `usable_group`）：
+>
+> | 分组 | 站方描述 |
+> |---|---|
+> | 图像-低 | 聚合/逆向渠道，质量参差，**功能受限** |
+> | 图像-中 | 聚合站渠道，**参数大致透传，可能有遗漏** |
+> | 图像-高 | 官方/官方 Agent 渠道，**参数全透传**，最高画质 |
+>
+> 两者虽然独立，但**分组会限制 `quality` 能不能真正生效**。实测用图像-低的 key 调 `gpt-image-2` 传 `quality:"high"`，返回 `quality_used:"medium"` 且 `downgraded:true`——因为逆向渠道参数透传不全。本 MCP 会把这种情况升级成显式告警。
 
 **`size`**：`WxH` 或 `auto`。上游只认五种宽高比：
 
@@ -87,7 +99,9 @@ saved: E:\images-out\20260902-085821-525-z-image.png (1024x1024, 1.2MB)
 实际价格 = model_price
          × 长边档位倍率      (每个模型有自己的档位表，18/20 适用)
          × quality 倍率      (只有 gpt-image-1-5 和 gpt-image-2 适用)
-         × 渠道分组倍率      (低 1.0 / 中 1.1 / 高 1.2，由 key 决定)
+         × 渠道分组倍率      (图像-低 1.0 / 图像-中 1.1 / 图像-高 1.2)
+                             ↑ 这是「用哪个生成来源」，由 key 固定，
+                               与上面那个 quality 参数无关
 ```
 
 **长边档位表是 per-model 的，不能硬编码一张全局表**：
@@ -98,7 +112,9 @@ saved: E:\images-out\20260902-085821-525-z-image.png (1024x1024, 1.2MB)
 | `nano-banana` | **0.50** | **0.75** | 1.00 | 1.00 |
 | `z-image` / `flux-2-klein-9b` | 固定价，不分档 | | | |
 
-`quality` 的 SKU 倍率（`low 0.7 / medium 0.85 / high 1.0`）**只对 `gpt-image-1-5` 和 `gpt-image-2` 生效**。其余 18 个模型改 quality 不改变 `credits_charged`，只通过 key 的渠道分组倍率影响账单——这解释了为什么实测 z-image 在 low/medium/high 三档都是 8 credits。
+`quality` 的 SKU 倍率（`low 0.7 / medium 0.85 / high 1.0`）**只对 `gpt-image-1-5` 和 `gpt-image-2` 生效**。其余 18 个模型带的是纯 size 规则或固定价，改 quality 不改变 `credits_charged`——这解释了为什么实测 z-image 在 low/medium/high 三档都收 8 credits。注意这只是说**计价**不受影响，`quality` 对这些模型的**出图效果**是否有影响要另行验证。
+
+最后那道渠道分组倍率本 MCP **算不出来**：分组是 key 的属性，接口不回传，所以 `list_models` 的估价止步于分组倍率之前，只报「乘分组倍率之前」的价格。
 
 `list_models` 会按你给的 `size` 和 `quality` 实时算出每个模型的估价并给出推导过程：
 

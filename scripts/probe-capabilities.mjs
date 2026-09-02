@@ -72,7 +72,7 @@ const targets = models.map((m) => m.id).filter((id) => !only || only.includes(id
 
 const total = targets.reduce((sum, id) => sum + (estimate(byName.get(id), PROBE_SIZE, PROBE_QUALITY) ?? 0), 0);
 console.log(`Probing ${targets.length} model(s) at size=${PROBE_SIZE} quality=${PROBE_QUALITY}.`);
-console.log(`Estimated cost: $${total.toFixed(4)} before the key's channel-group multiplier.`);
+console.log(`Estimated cost: $${total.toFixed(4)} before the key's channel-group ratio.`);
 console.log(`(A probe that FAILS is usually not billed, so this is an upper bound.)\n`);
 
 if (!confirmed) {

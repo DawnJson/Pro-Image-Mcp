@@ -30,7 +30,7 @@ export function loadConfig(): Config {
     apiKey,
     baseUrl,
     saveDir: process.env.PROIMAGE_SAVE_DIR?.trim() || join(homedir(), "Pictures", "pro-image-mcp"),
-    defaultModel: process.env.PROIMAGE_DEFAULT_MODEL?.trim() || "z-image",
+    defaultModel: process.env.PROIMAGE_DEFAULT_MODEL?.trim() || "gpt-image-2",
     timeoutMs: envInt("PROIMAGE_TIMEOUT_MS", 300_000),
     maxConcurrency: envInt("PROIMAGE_CONCURRENCY", 3),
   };

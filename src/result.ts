@@ -90,15 +90,19 @@ export function formatResult(opts: {
   requestedSize: string;
   meta?: ImageMeta;
   saved: SavedImage[];
+  /** Measured USD delta around the call, or null when unavailable. */
+  costUsd?: number | null;
 }): string {
-  const { model, requestedQuality, requestedSize, meta = {}, saved } = opts;
+  const { model, requestedQuality, requestedSize, meta = {}, saved, costUsd } = opts;
   const lines: string[] = [];
   const warnings: string[] = [];
 
   lines.push(`model=${model}  quality=${requestedQuality}  size=${requestedSize}`);
 
   const billed: string[] = [];
-  if (meta.credits_charged !== undefined) billed.push(`credits_charged=${meta.credits_charged}`);
+  if (costUsd !== undefined && costUsd !== null) billed.push(`cost=$${costUsd.toFixed(5)}`);
+  // Upstream provider credits, not USD - kept for provenance, never as the price.
+  if (meta.credits_charged !== undefined) billed.push(`upstream_credits=${meta.credits_charged}`);
   if (meta.quality_used !== undefined) billed.push(`quality_used=${meta.quality_used}`);
   if (meta.attempts !== undefined && meta.attempts > 1) billed.push(`attempts=${meta.attempts}`);
   if (billed.length) lines.push(billed.join("  "));
