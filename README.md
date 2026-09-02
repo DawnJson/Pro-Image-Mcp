@@ -216,6 +216,39 @@ node scripts/probe-capabilities.mjs --confirm    # 真花钱，全量约 $0.68
 
 脚本按 `:image2image` 后缀判定，输出可直接粘贴进 `src/capabilities.ts` 的 `MEASURED_IMAGE_TO_IMAGE` 代码块。
 
+## 按模型族发参
+
+prolab 对每个模型族构造**不同的请求体**，不是一个并集。本 MCP 照抄了它的字段表（`src/params.ts`），族不接受的字段**不发**，并在结果里说明。
+
+理由和参考图那条一样：上游对多余字段一律返回 200，不匹配是**看不见的**。用户在 nano-banana 上设了 `quality`，以为拧了个旋钮，其实那根线没接。
+
+| 字段 | 接受的族 |
+|---|---|
+| `size` | 除 grok/agnes 外几乎都接受 |
+| `quality` | gpt-image、seedream、hunyuan、gpt4o |
+| `seed` | flux、imagen、seedream、qwen |
+| `negative_prompt` | seedream、qwen、z-image |
+| `watermark` | seedream、qwen |
+| `background` | gpt-image、gpt4o（`transparent` 出透明底素材） |
+| `output_format` | gpt-image、flux |
+| `input_fidelity` | **仅 gpt-image**，控制编辑时保留原图的程度 |
+
+`quality` 在 schema 层**仍然必填**（计费安全），但对不接受它的族不会发上去，结果行会标 `(not sent)`：
+
+```
+model=flux-2-klein-9b  quality=high (not sent)  size=1024x1024
+cost=$0.00750  upstream_credits=5
+
+NOTE: quality, negative_prompt were NOT sent: the "flux" family does not
+accept them. The request was made without them.
+```
+
+`image_multi_reference` 会按族上限拒绝过多参考图：gpt-image 16、seedream 10、flux 8、qwen/grok 3。
+
+### 关于 `n`
+
+`image_generate` 的 `n` 可以大于 1，但 prolab **恒发 n=1**，改用并发的独立请求，注释写明理由是「避免上游二次批量造成双重计费」。要多张图请优先用 `image_batch_generate`，它就是这个模式。
+
 ## 实测确认的上游行为
 
 以下每一条都是对 `us.prorisehub.com` 实际发请求验证过的，不是推测。代码里针对每条都有对应处理：
