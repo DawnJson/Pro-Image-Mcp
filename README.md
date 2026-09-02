@@ -19,21 +19,16 @@
 
 ## 安装
 
-```bash
-npm install
-npm run build
-```
+### 方式一：npx（推荐，零安装）
 
-## 配置
-
-MCP 客户端配置（Claude Code 为例，写进 `.mcp.json` 或用 `claude mcp add`）：
+MCP 客户端配置里直接写，不需要事先装任何东西：
 
 ```json
 {
   "mcpServers": {
     "pro-image": {
-      "command": "node",
-      "args": ["E:/PostGraduateFile/code/Pro-Image-Mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "pro-image-mcp"],
       "env": {
         "PROIMAGE_API_KEY": "sk-...",
         "PROIMAGE_BASE_URL": "https://us.prorisehub.com",
@@ -44,6 +39,28 @@ MCP 客户端配置（Claude Code 为例，写进 `.mcp.json` 或用 `claude mcp
   }
 }
 ```
+
+`npx` 默认每次解析最新版：修了 bug 你立刻拿到，但发了破坏性版本你也立刻中招。要钉死版本用 `"args": ["-y", "pro-image-mcp@0.1.0"]`。
+
+### 方式二：全局安装
+
+```bash
+npm install -g pro-image-mcp
+```
+
+然后 `"command": "pro-image-mcp"`，`"args": []`。启动省掉几百毫秒的解析，代价是升级要手动 `npm update -g`，且离线可用。
+
+### 方式三：从源码跑（开发时用）
+
+```bash
+git clone https://github.com/DawnJson/Pro-Image-Mcp.git
+cd Pro-Image-Mcp
+npm install && npm run build
+```
+
+配置指向 `"command": "node"`, `"args": ["<绝对路径>/dist/index.js"]`。改完代码 `npm run build` 即生效，没有发布往返。
+
+> Claude Code 也可以用 `claude mcp add` 命令行添加，效果等同。
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
@@ -285,6 +302,8 @@ accept them. The request was made without them.
 
 ## 冒烟测试
 
+`e2e.mjs` 只在仓库里，不随 npm 包分发。它用真实 MCP 客户端连本地 `dist/`：
+
 ```bash
 PROIMAGE_API_KEY=sk-... node e2e.mjs valid      # 本地校验，不花钱
 PROIMAGE_API_KEY=sk-... node e2e.mjs info,models
@@ -292,3 +311,24 @@ PROIMAGE_API_KEY=sk-... node e2e.mjs gen,edit,multiref,batch   # 会真实计费
 ```
 
 `valid` 一档覆盖三条零成本拦截：非法比例、非法 quality、文件不存在。
+
+## 发布
+
+```bash
+npm login                 # 交互式，需要你自己跑
+npm version patch         # 或 minor / major
+npm publish               # prepublishOnly 会自动先 npm run build
+git push --follow-tags
+```
+
+`files` 白名单只打包 `dist/`、`scripts/`、`README.md`、`LICENSE`——源码、`node_modules`、`e2e.mjs` 都不进包（实测 28.9 kB / 12 个文件）。
+
+发布前可以先验证真实安装路径：
+
+```bash
+npm pack
+cd /tmp && npm init -y && npm install <仓库路径>/pro-image-mcp-0.1.0.tgz
+node_modules/.bin/pro-image-mcp        # 应打印 ready 到 stderr
+```
+
+`bin` 入口带 shebang，npm 会自动生成三平台 shim（Windows 下是 `.cmd` / `.ps1` / 无扩展名各一份）。
